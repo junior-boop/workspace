@@ -26,3 +26,15 @@
 .animate-slide-down {
   animation: slide-down 0.4s cubic-bezier(0.83, 0, 0.17, 1);
 }
+
+.menu-mobile-clip {
+  clip-path: circle(var(--rayon, 0%) at var(--origine-x, 50%) var(--origine-y, 50%));
+  transition: clip-path 1s cubic-bezier(0.83, 0, 0.17, 1);
+}
+
+@media (min-width: 768px) {
+  .menu-mobile-clip {
+    clip-path: none;
+    transition: none;
+  }
+}

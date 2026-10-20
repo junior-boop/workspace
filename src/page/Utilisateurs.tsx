@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ChangeEvent, type SubmitEvent } from 
 import { Plus, CircleUserRound, Camera, Eye, EyeOff, Loader2, Pencil, Trash2 } from 'lucide-react'
 import { collection, deleteDoc, doc, onSnapshot, serverTimestamp, setDoc, Timestamp } from 'firebase/firestore'
 import { db } from '../firebase'
+import { useAuth } from '../contexts/AuthContext'
 import ModaleBas from '../composants/ModaleBas'
 import { hasherMotDePasse } from '../utils/motDePasse'
 import { blobVersDataUrl, compresserImageEnJpeg } from '../utils/image'
@@ -32,6 +33,7 @@ type Utilisateur = {
 type UtilisateurFirestore = Utilisateur & { id: string }
 
 function Utilisateurs() {
+  const { utilisateur: utilisateurConnecte } = useAuth()
   const [modaleOuverte, setModaleOuverte] = useState(false)
   const [utilisateurs, setUtilisateurs] = useState<UtilisateurFirestore[]>([])
   const [chargementUtilisateurs, setChargementUtilisateurs] = useState(true)
@@ -107,11 +109,14 @@ function Utilisateurs() {
     setModaleOuverte(true)
   }
 
+  const peutSupprimer = (utilisateur: UtilisateurFirestore) => {
+    if (utilisateur.role === 'fondateur') return false
+    if (utilisateurConnecte?.role === 'responsable' && utilisateur.role === 'responsable') return false
+    return true
+  }
+
   const supprimerUtilisateur = async (utilisateur: UtilisateurFirestore) => {
-    if (utilisateur.role === 'fondateur') {
-      window.alert('Impossible de supprimer un fondateur.')
-      return
-    }
+    if (!peutSupprimer(utilisateur)) return
     if (!window.confirm('Voulez-vous vraiment supprimer cet utilisateur ?')) return
     setIdEnSuppression(utilisateur.id)
     try {
@@ -200,8 +205,11 @@ function Utilisateurs() {
             <div className='flex-1 min-w-0'>
               <p className='font-medium text-gray-800 truncate'>{utilisateur.nom} {utilisateur.prenoms}</p>
               <p className='text-sm text-gray-500 truncate'>{utilisateur.email} · {utilisateur.telephone}</p>
+              <span className={`sm:hidden inline-block mt-1 px-3 py-1 rounded-full text-xs font-medium ${utilisateur.role === 'collaborateur' ? 'bg-gray-100 text-gray-700' : 'bg-blue-50 text-blue-700'}`}>
+                {LABELS_ROLE[utilisateur.role]}
+              </span>
             </div>
-            <span className={`shrink-0 px-3 py-1 rounded-full text-sm font-medium ${utilisateur.role === 'collaborateur' ? 'bg-gray-100 text-gray-700' : 'bg-blue-50 text-blue-700'}`}>
+            <span className={`hidden sm:inline-block shrink-0 px-3 py-1 rounded-full text-sm font-medium ${utilisateur.role === 'collaborateur' ? 'bg-gray-100 text-gray-700' : 'bg-blue-50 text-blue-700'}`}>
               {LABELS_ROLE[utilisateur.role]}
             </span>
             <button
@@ -211,7 +219,7 @@ function Utilisateurs() {
             >
               <Pencil strokeWidth={2} className='h-4 w-4' />
             </button>
-            {utilisateur.role !== 'fondateur' && (
+            {peutSupprimer(utilisateur) && (
               <button
                 type='button'
                 onClick={() => supprimerUtilisateur(utilisateur)}

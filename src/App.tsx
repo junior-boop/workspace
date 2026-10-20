@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { Wallet, FolderKanban, Users, Settings, History, FileText, CircleUserRound, MessageSquare, Loader2, Menu as MenuIcon, X } from 'lucide-react'
 import { Routes, Route, NavLink } from 'react-router-dom'
 import './App.css'
@@ -15,10 +15,11 @@ import ConditionsUtilisation from './page/ConditionsUtilisation'
 import Messages from './page/Messages'
 import Login from './page/Login'
 import Layout from './composants/Layout'
+import OnboardingPwa from './composants/OnboardingPwa'
 import { useAuth } from './contexts/AuthContext'
 import { NotificationsProvider, useNotifications } from './contexts/NotificationsContext'
 
-function Menu({ open, onClose }: { open: boolean, onClose: () => void }) {
+function Menu({ open, onClose, origine }: { open: boolean, onClose: () => void, origine: { x: number, y: number } }) {
   const { utilisateur } = useAuth()
   const { messagesNonLus, mouvementsNonLus, projetsNonLus } = useNotifications()
 
@@ -31,9 +32,10 @@ function Menu({ open, onClose }: { open: boolean, onClose: () => void }) {
         />
       )}
       <div
-        className={`fixed md:static inset-y-0 left-0 z-40 flex w-112.5 h-dvh flex-row justify-start transform transition-transform duration-200 ${open ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0`}
+        className='menu-mobile-clip fixed md:static inset-y-0 left-0 z-40 flex w-dvw md:w-112.5 h-dvh flex-row justify-start'
+        style={{ '--rayon': open ? '150%' : '0%', '--origine-x': `${origine.x}px`, '--origine-y': `${origine.y}px` } as React.CSSProperties}
       >
-        <div className='w-dvw lg:w-[80%] h-full flex flex-col border-r border-gray-200 px-4 bg-white'>
+        <div className='w-dvw lg:w-[80%] h-full flex flex-col overflow-y-auto md:overflow-visible border-r border-gray-200 px-4 bg-white'>
           <div className='px-4 py-2'>
             <div className='my-10 flex items-center justify-between'>
               <img src={logo} alt="Logo" className='h-10' />
@@ -105,6 +107,14 @@ function NavButton({ to, icon: Icon, photo, label, badge, badgePoint, onNavigate
 function App() {
   const { utilisateur, chargement } = useAuth()
   const [menuOuvert, setMenuOuvert] = useState(false)
+  const [origineMenu, setOrigineMenu] = useState({ x: 0, y: 0 })
+  const boutonMenuRef = useRef<HTMLButtonElement>(null)
+
+  const ouvrirMenu = () => {
+    const rect = boutonMenuRef.current?.getBoundingClientRect()
+    if (rect) setOrigineMenu({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 })
+    setMenuOuvert(true)
+  }
 
   if (chargement) {
     return (
@@ -120,11 +130,12 @@ function App() {
 
   return (
     <NotificationsProvider>
+      <OnboardingPwa />
       <div className='flex w-dvw h-dvh overflow-hidden border'>
-        <Menu open={menuOuvert} onClose={() => setMenuOuvert(false)} />
+        <Menu open={menuOuvert} onClose={() => setMenuOuvert(false)} origine={origineMenu} />
         <div className='flex-1 w-full h-full flex flex-col overflow-hidden'>
           <div className='flex md:hidden items-center gap-6 p-4 border-b border-gray-200 shrink-0'>
-            <button type='button' onClick={() => setMenuOuvert(true)} aria-label='Ouvrir le menu'>
+            <button type='button' ref={boutonMenuRef} onClick={ouvrirMenu} aria-label='Ouvrir le menu'>
               <MenuIcon strokeWidth={2} className='h-6 w-6 text-gray-700' />
             </button>
             <img src={logo} alt="Logo" className='h-7' />
