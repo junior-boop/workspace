@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type SubmitEvent } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { Check, CheckCheck, ChevronLeft, ChevronRight, CircleUserRound, Download, ImagePlus, Loader2, Megaphone, Reply, Send, SendHorizonal, Star, Trash2, Users, X } from 'lucide-react'
+import { Check, CheckCheck, ChevronLeft, ChevronRight, CircleUserRound, Download, ImagePlus, Loader2, Megaphone, Reply, SendHorizonal, Star, Trash2, Users, X } from 'lucide-react'
 import { addDoc, collection, deleteDoc, doc, getDoc, onSnapshot, serverTimestamp, updateDoc, arrayUnion, arrayRemove } from 'firebase/firestore'
 import { onValue, push, ref, remove, set, update } from 'firebase/database'
 import { db, rtdb } from '../firebase'
@@ -240,8 +240,6 @@ function Messages() {
     const contact = contacts.find((c) => c.id === id)
     return contact ? `${contact.prenoms.split(' ')[0]} ${contact.nom}` : 'Utilisateur'
   }
-
-  const peutEnvoyer = !(selectedId === ID_ANNONCES && !peutPublierAnnonce)
 
   const basculerFavori = async (contactId: string) => {
     const estFavori = (utilisateur.favoris ?? []).includes(contactId)
