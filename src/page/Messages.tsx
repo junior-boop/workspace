@@ -327,14 +327,20 @@ function Messages() {
                   <div className='h-10 w-10 rounded-full bg-blue-600 flex items-center justify-center'>
                     <Megaphone strokeWidth={2} className='h-5 w-5 text-white' />
                   </div>
-                  <p className='font-medium text-gray-800'>Annonces</p>
+                  <div>
+                    <p className='font-medium text-gray-800'>Annonces</p>
+                    {sousTitreThread && <p className='text-xs text-gray-500'>{sousTitreThread}</p>}
+                  </div>
                 </>
               ) : selectedId === ID_GROUPE ? (
                 <>
                   <div className='h-10 w-10 rounded-full bg-green-600 flex items-center justify-center'>
                     <Users strokeWidth={2} className='h-5 w-5 text-white' />
                   </div>
-                  <p className='font-medium text-gray-800'>Groupe</p>
+                  <div>
+                    <p className='font-medium text-gray-800'>Groupe</p>
+                    {sousTitreThread && <p className='text-xs text-gray-500'>{sousTitreThread}</p>}
+                  </div>
                 </>
               ) : (
                 <>
@@ -368,8 +374,13 @@ function Messages() {
                       )}
                       <p>{message.texte} - <span className={`text-xs mt-1 ${estMoi ? 'text-blue-100' : 'text-gray-400'}`}>
                         {new Date(message.envoyeAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
-                      </span></p>
-                      
+                      </span>
+                        {estMoi && idConversationSelectionnee && (
+                          estLuParTous(idConversationSelectionnee, message.envoyeAt)
+                            ? <CheckCheck className='inline-block h-3.5 w-3.5 ml-1 text-blue-100' />
+                            : <Check className='inline-block h-3.5 w-3.5 ml-1 text-blue-100' />
+                        )}
+                      </p>
                     </div>
                   </div>
                 )
@@ -386,7 +397,7 @@ function Messages() {
                 <input
                   type='text'
                   value={texte}
-                  onChange={(e) => setTexte(e.target.value)}
+                  onChange={gererSaisie}
                   placeholder='Écrire un message...'
                   className='flex-1 rounded-full border border-gray-300 px-4 py-2 focus:outline-none focus:border-blue-500'
                 />
