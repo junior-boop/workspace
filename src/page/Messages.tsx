@@ -413,6 +413,12 @@ function Messages() {
 
   const imageVisionneuse = indexVisionneuse !== null ? toutesLesImages[indexVisionneuse] : null
 
+  const [zoomActif, setZoomActif] = useState(false)
+
+  useEffect(() => {
+    setZoomActif(false)
+  }, [indexVisionneuse])
+
   return (
     <>
     <div className='h-full flex'>
@@ -856,26 +862,34 @@ function Messages() {
             onScroll={gererScrollVisionneuse}
             className='flex md:hidden w-full h-full overflow-x-auto snap-x snap-mandatory [scrollbar-width:none] [&::-webkit-scrollbar]:hidden'
           >
-            {toutesLesImages.map((image) => (
+            {toutesLesImages.map((image, i) => (
               <div
                 key={image.id}
                 onClick={(e) => e.stopPropagation()}
                 className='w-full h-full shrink-0 snap-center flex items-center justify-center'
               >
                 {imagesCache[image.id] ? (
-                  <img src={imagesCache[image.id]} alt='' className='w-full max-h-[65vh] object-contain' />
+                  <img
+                    src={imagesCache[image.id]}
+                    alt=''
+                    onDoubleClick={(e) => { e.stopPropagation(); setZoomActif((z) => !z) }}
+                    style={{ transform: zoomActif && i === indexVisionneuse ? 'scale(2)' : 'scale(1)' }}
+                    className='w-full max-h-[65vh] object-contain transition-transform duration-200 cursor-zoom-in'
+                  />
                 ) : (
                   <Loader2 className='h-10 w-10 text-white animate-spin' />
                 )}
               </div>
             ))}
           </div>
-          <div onClick={(e) => e.stopPropagation()} className='hidden md:flex md:max-h-[90vh] md:max-w-[90vw] items-center justify-center'>
+          <div onClick={(e) => e.stopPropagation()} className='hidden md:flex md:max-h-[90vh] md:max-w-[90vw] items-center justify-center overflow-hidden'>
             {imagesCache[imageVisionneuse.id] ? (
               <img
                 src={imagesCache[imageVisionneuse.id]}
                 alt=''
-                className='md:max-h-[90vh] md:max-w-[90vw] object-contain'
+                onDoubleClick={() => setZoomActif((z) => !z)}
+                style={{ transform: zoomActif ? 'scale(2)' : 'scale(1)' }}
+                className='md:max-h-[90vh] md:max-w-[90vw] object-contain transition-transform duration-200 cursor-zoom-in'
               />
             ) : (
               <Loader2 className='h-10 w-10 text-white animate-spin' />
