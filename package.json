@@ -12,6 +12,11 @@
   "dependencies": {
     "@jsquash/jpeg": "^1.6.0",
     "@tailwindcss/vite": "^4.3.3",
+    "@tiptap/extension-image": "^3.32.0",
+    "@tiptap/extension-underline": "^3.32.0",
+    "@tiptap/pm": "^3.32.0",
+    "@tiptap/react": "^3.32.0",
+    "@tiptap/starter-kit": "^3.32.0",
     "firebase": "^13.0.0",
     "lucide-react": "^1.59.0",
     "react": "^19.3.1",

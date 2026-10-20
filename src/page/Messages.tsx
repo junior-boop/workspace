@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState, type ChangeEvent, type SubmitEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type SubmitEvent } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { Check, CheckCheck, ChevronLeft, ChevronRight, CircleUserRound, Download, ImagePlus, Loader2, Megaphone, Reply, Send, SendHorizonal, Star, Trash2, Users, X } from 'lucide-react'
 import { addDoc, collection, deleteDoc, doc, getDoc, onSnapshot, serverTimestamp, updateDoc, arrayUnion, arrayRemove } from 'firebase/firestore'
 import { onValue, push, ref, remove, set, update } from 'firebase/database'
@@ -48,6 +49,7 @@ type Presence = {
 
 function Messages() {
   const { utilisateur } = useAuth()
+  const [searchParams] = useSearchParams()
   const [contacts, setContacts] = useState<Contact[]>([])
   const [chargementContacts, setChargementContacts] = useState(true)
   const [resumes, setResumes] = useState<Record<string, ResumeConversation>>({})
@@ -61,10 +63,14 @@ function Messages() {
   const [imagesCache, setImagesCache] = useState<Record<string, string>>({})
   const [envoiImageEnCours, setEnvoiImageEnCours] = useState(false)
   const [indexVisionneuse, setIndexVisionneuse] = useState<number | null>(null)
+  const [messageActifId, setMessageActifId] = useState<string | null>(null)
   const finDesMessagesRef = useRef<HTMLDivElement>(null)
   const frappeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const messagesRef = useRef<Record<string, HTMLDivElement | null>>({})
   const inputImageRef = useRef<HTMLInputElement>(null)
+  const scrollVisionneuseRef = useRef<HTMLDivElement>(null)
+  const minuteurAppuiLongRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const appuiLongDeclencheRef = useRef(false)
 
   useEffect(() => {
     if (!utilisateur) return
@@ -131,7 +137,13 @@ function Messages() {
 
   useEffect(() => {
     setMessageEnReponse(null)
+    setMessageActifId(null)
   }, [idConversationSelectionnee])
+
+  useEffect(() => {
+    const contactId = searchParams.get('contact')
+    if (contactId) setSelectedId(contactId)
+  }, [searchParams])
 
   useEffect(() => {
     const idsManquants = [...new Set(messages.flatMap((m) => m.imageIds ?? []))]
@@ -152,8 +164,36 @@ function Messages() {
     set(ref(rtdb, `lectures/${idConversationSelectionnee}/${utilisateur.id}`), Date.now())
   }, [utilisateur, idConversationSelectionnee, messages.length])
 
-  const toutesLesImages: ImageConversation[] = messages.flatMap((m) =>
-    (m.imageIds ?? []).map((id) => ({ id, messageId: m.id }))
+  const toutesLesImages: ImageConversation[] = useMemo(
+    () => messages.flatMap((m) => (m.imageIds ?? []).map((id) => ({ id, messageId: m.id }))),
+    [messages]
+  )
+
+  const contactsFavoris = useMemo(
+    () => contacts.filter((contact) => (utilisateur?.favoris ?? []).includes(contact.id)),
+    [contacts, utilisateur]
+  )
+
+  const contactsTries = useMemo(
+    () => [...contacts].sort((a, b) => {
+      if (!utilisateur) return 0
+      const resumeA = resumes[idConversationPrivee(utilisateur.id, a.id)]
+      const resumeB = resumes[idConversationPrivee(utilisateur.id, b.id)]
+      if (resumeA?.dernierMessageAt && resumeB?.dernierMessageAt) return resumeB.dernierMessageAt - resumeA.dernierMessageAt
+      if (resumeA?.dernierMessageAt) return -1
+      if (resumeB?.dernierMessageAt) return 1
+      return a.nom.localeCompare(b.nom)
+    }),
+    [contacts, resumes, utilisateur]
+  )
+
+  const autresParticipants = useMemo(
+    () => selectedId === ID_ANNONCES || selectedId === ID_GROUPE
+      ? contacts.map((contact) => contact.id)
+      : selectedId
+        ? [selectedId]
+        : [],
+    [selectedId, contacts]
   )
 
   useEffect(() => {
@@ -186,14 +226,14 @@ function Messages() {
     return dernierMessage ?? defaut
   }
 
-  const autresParticipants = selectedId === ID_ANNONCES || selectedId === ID_GROUPE
-    ? contacts.map((contact) => contact.id)
-    : selectedId
-      ? [selectedId]
-      : []
-
   const estLuParTous = (conversationId: string, timestamp: number) =>
     autresParticipants.length > 0 && autresParticipants.every((id) => (lectures[conversationId]?.[id] ?? 0) >= timestamp)
+
+  const nonLuPourMoi = (conversationId: string) => {
+    const dernierMessageAt = resumes[conversationId]?.dernierMessageAt
+    if (!dernierMessageAt) return false
+    return (lectures[conversationId]?.[utilisateur.id] ?? 0) < dernierMessageAt
+  }
 
   const nomExpediteur = (id: string) => {
     if (id === utilisateur.id) return 'Vous'
@@ -303,6 +343,28 @@ function Messages() {
     messagesRef.current[id]?.scrollIntoView({ block: 'center', behavior: 'smooth' })
   }
 
+  const demarrerAppuiLong = (id: string) => {
+    minuteurAppuiLongRef.current = setTimeout(() => {
+      appuiLongDeclencheRef.current = true
+      setMessageActifId(id)
+    }, 500)
+  }
+
+  const annulerAppuiLong = () => {
+    if (minuteurAppuiLongRef.current) {
+      clearTimeout(minuteurAppuiLongRef.current)
+      minuteurAppuiLongRef.current = null
+    }
+  }
+
+  const fermerMenuMessageSiNecessaire = () => {
+    if (appuiLongDeclencheRef.current) {
+      appuiLongDeclencheRef.current = false
+      return
+    }
+    setMessageActifId(null)
+  }
+
   const supprimerMessage = async (message: Message) => {
     if (!idConversationSelectionnee || message.expediteurId !== utilisateur.id) return
     if (!window.confirm('Supprimer ce message ?')) return
@@ -325,16 +387,21 @@ function Messages() {
     if (index !== -1) setIndexVisionneuse(index)
   }
 
-  const contactsFavoris = contacts.filter((contact) => (utilisateur.favoris ?? []).includes(contact.id))
+  const gererScrollVisionneuse = () => {
+    const conteneur = scrollVisionneuseRef.current
+    if (!conteneur) return
+    const index = Math.round(conteneur.scrollLeft / conteneur.clientWidth)
+    if (index !== indexVisionneuse) setIndexVisionneuse(index)
+  }
 
-  const contactsTries = [...contacts].sort((a, b) => {
-    const resumeA = resumes[idConversationPrivee(utilisateur.id, a.id)]
-    const resumeB = resumes[idConversationPrivee(utilisateur.id, b.id)]
-    if (resumeA?.dernierMessageAt && resumeB?.dernierMessageAt) return resumeB.dernierMessageAt - resumeA.dernierMessageAt
-    if (resumeA?.dernierMessageAt) return -1
-    if (resumeB?.dernierMessageAt) return 1
-    return a.nom.localeCompare(b.nom)
-  })
+  useEffect(() => {
+    const conteneur = scrollVisionneuseRef.current
+    if (!conteneur || indexVisionneuse === null) return
+    const cible = indexVisionneuse * conteneur.clientWidth
+    if (Math.abs(conteneur.scrollLeft - cible) > 10) {
+      conteneur.scrollTo({ left: cible, behavior: 'smooth' })
+    }
+  }, [indexVisionneuse])
 
   const contactSelectionne = selectedId && selectedId !== ID_ANNONCES && selectedId !== ID_GROUPE
     ? contacts.find((contact) => contact.id === selectedId)
@@ -351,7 +418,7 @@ function Messages() {
   return (
     <>
     <div className='h-full flex'>
-      <div className='w-80 h-full flex flex-col border-r border-gray-200'>
+      <div className={`w-full md:w-80 h-full flex-col border-r border-gray-200 ${selectedId ? 'hidden md:flex' : 'flex'}`}>
         <div className='px-4 py-4 border-b border-gray-200'>
           <h1 className='text-xl font-bold text-gray-800'>Messages</h1>
         </div>
@@ -434,6 +501,7 @@ function Messages() {
             const idConversationContact = idConversationPrivee(utilisateur.id, contact.id)
             const resume = resumes[idConversationContact]
             const estFavori = (utilisateur.favoris ?? []).includes(contact.id)
+            const nonLu = nonLuPourMoi(idConversationContact)
             return (
               <div
                 key={contact.id}
@@ -449,9 +517,12 @@ function Messages() {
                     {estEnLigne(contact.id) && (
                       <span className='absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full bg-green-500 border-2 border-white' />
                     )}
+                    {nonLu && (
+                      <span className='absolute -top-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-red-500 border-2 border-white' />
+                    )}
                   </div>
                   <div className='flex-1 min-w-0'>
-                    <p className='font-medium text-gray-800 truncate'>
+                    <p className={`font-medium truncate ${nonLu ? 'text-red-600' : 'text-gray-800'}`}>
                       {contact.prenoms.split(' ')[0]} {contact.nom}
                       {resume?.dernierMessageAt && (
                         <span className='text-xs text-gray-400'> - {new Date(resume.dernierMessageAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</span>
@@ -469,7 +540,7 @@ function Messages() {
         </div>
       </div>
 
-      <div className='flex-1 h-full flex flex-col'>
+      <div className={`flex-1 h-full flex-col ${selectedId ? 'flex' : 'hidden md:flex'}`}>
         {!selectedId && (
           <div className='flex-1 flex items-center justify-center text-gray-400'>
             Sélectionnez une conversation pour commencer à discuter.
@@ -478,7 +549,14 @@ function Messages() {
 
         {selectedId && (
           <>
-            <div className='flex items-center gap-3 px-6 py-4 border-b border-gray-200'>
+            <div className='flex items-center gap-3 px-4 md:px-6 py-4 border-b border-gray-200'>
+              <button
+                type='button'
+                onClick={() => setSelectedId(null)}
+                className='md:hidden shrink-0 p-1 -ml-1 text-gray-500 hover:text-gray-800'
+              >
+                <ChevronLeft strokeWidth={2} className='h-6 w-6' />
+              </button>
               {selectedId === ID_ANNONCES ? (
                 <>
                   <div className='h-10 w-10 rounded-full bg-blue-600 flex items-center justify-center'>
@@ -520,7 +598,7 @@ function Messages() {
               )}
             </div>
 
-            <div className='flex-1 overflow-y-auto px-6 py-4 flex flex-col'>
+            <div className='flex-1 overflow-y-auto px-4 md:px-6 py-4 flex flex-col' onClick={fermerMenuMessageSiNecessaire}>
               {messages.map((message, index) => {
                 const estMoi = message.expediteurId === utilisateur.id
                 const estAnnonce = selectedId === ID_ANNONCES
@@ -534,9 +612,12 @@ function Messages() {
                     key={message.id}
                     ref={(el) => { messagesRef.current[message.id] = el }}
                     className={`group flex items-center gap-1 ${estAnnonce ? 'justify-center' : estMoi ? 'justify-end' : 'justify-start'} ${index === 0 ? '' : groupePrecedent ? 'mt-1' : 'mt-3'}`}
+                    onTouchStart={() => demarrerAppuiLong(message.id)}
+                    onTouchEnd={annulerAppuiLong}
+                    onTouchMove={annulerAppuiLong}
                   >
                     {estMoi && !message.supprime && (
-                      <div className='flex items-center opacity-0 group-hover:opacity-100'>
+                      <div className={`flex items-center transition-opacity ${messageActifId === message.id ? 'opacity-100' : 'opacity-0'} md:group-hover:opacity-100`}>
                         <button
                           type='button'
                           onClick={() => supprimerMessage(message)}
@@ -555,7 +636,7 @@ function Messages() {
                         </button>
                       </div>
                     )}
-                    <div className={`${estImage ? 'w-[45%]' : estAnnonce ? 'w-[70%]' : 'max-w-[60%]'} ${arrondi} overflow-hidden ${estMoi ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-800'}`}>
+                    <div className={`${estImage ? 'w-[75%] md:w-[45%]' : estAnnonce ? 'w-[70%]' : 'max-w-[60%]'} ${arrondi} overflow-hidden ${estMoi ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-800'}`}>
                       {estAnnonce && (
                         <p className='text-[11px] font-medium opacity-70 px-4 pt-2'>
                           {estMoi ? `${utilisateur.prenoms.split(' ')[0]} ${utilisateur.nom}` : `${expediteur?.prenoms.split(' ')[0]} ${expediteur?.nom}`}
@@ -651,7 +732,7 @@ function Messages() {
                       <button
                         type='button'
                         onClick={() => setMessageEnReponse(message)}
-                        className='opacity-0 group-hover:opacity-100 p-1 text-gray-400 hover:text-gray-600'
+                        className={`transition-opacity ${messageActifId === message.id ? 'opacity-100' : 'opacity-0'} md:group-hover:opacity-100 p-1 text-gray-400 hover:text-gray-600`}
                         title='Répondre'
                       >
                         <Reply strokeWidth={2} className='h-4 w-4' />
@@ -664,13 +745,13 @@ function Messages() {
             </div>
 
             {selectedId === ID_ANNONCES && !peutPublierAnnonce ? (
-              <div className='px-6 py-4 border-t border-gray-200 text-sm text-gray-500'>
+              <div className='px-4 md:px-6 py-4 border-t border-gray-200 text-sm text-gray-500'>
                 Seuls le fondateur et les responsables peuvent publier dans Annonces.
               </div>
             ) : (
               <div className='border-t border-gray-200'>
                 {messageEnReponse && (
-                  <div className='flex items-center justify-between gap-3 px-6 pt-3'>
+                  <div className='flex items-center justify-between gap-3 px-4 md:px-6 pt-3'>
                     <div className='flex-1 min-w-0 flex items-center gap-2 rounded-md bg-gray-100 border-l-2 border-blue-500 px-3 py-1.5'>
                       {messageEnReponse.imageIds?.[0] && (
                         imagesCache[messageEnReponse.imageIds[0]] ? (
@@ -691,7 +772,7 @@ function Messages() {
                     </button>
                   </div>
                 )}
-                <form onSubmit={envoyerMessage} className='flex items-center gap-3 px-6 py-4'>
+                <form onSubmit={envoyerMessage} className='flex items-center gap-3 px-4 md:px-6 py-4'>
                   <input
                     type='text'
                     value={texte}
@@ -732,13 +813,13 @@ function Messages() {
 
     {imageVisionneuse && (
       <div
-        className='fixed inset-0 z-50 bg-black/90 flex items-center justify-center'
+        className='fixed inset-0 z-50 bg-black/90 flex flex-col'
         onClick={() => setIndexVisionneuse(null)}
       >
         <button
           type='button'
           onClick={() => setIndexVisionneuse(null)}
-          className='absolute top-4 right-4 p-2 rounded-full bg-white/10 text-white hover:bg-white/20'
+          className='absolute top-4 right-4 z-10 p-2 rounded-full bg-white/10 text-white hover:bg-white/20'
           title='Fermer'
         >
           <X strokeWidth={2} className='h-6 w-6' />
@@ -746,42 +827,81 @@ function Messages() {
         <button
           type='button'
           onClick={(e) => { e.stopPropagation(); telechargerImage(imageVisionneuse.id) }}
-          className='absolute top-4 right-16 p-2 rounded-full bg-white/10 text-white hover:bg-white/20'
+          className='absolute top-4 right-16 z-10 p-2 rounded-full bg-white/10 text-white hover:bg-white/20'
           title='Télécharger'
         >
           <Download strokeWidth={2} className='h-6 w-6' />
         </button>
-        {indexVisionneuse !== null && indexVisionneuse > 0 && (
-          <button
-            type='button'
-            onClick={(e) => { e.stopPropagation(); setIndexVisionneuse(indexVisionneuse - 1) }}
-            className='absolute left-4 top-1/2 -translate-y-1/2 p-2 rounded-full bg-white/10 text-white hover:bg-white/20'
-            title='Précédent'
-          >
-            <ChevronLeft strokeWidth={2} className='h-7 w-7' />
-          </button>
-        )}
-        {indexVisionneuse !== null && indexVisionneuse < toutesLesImages.length - 1 && (
-          <button
-            type='button'
-            onClick={(e) => { e.stopPropagation(); setIndexVisionneuse(indexVisionneuse + 1) }}
-            className='absolute right-4 top-1/2 -translate-y-1/2 p-2 rounded-full bg-white/10 text-white hover:bg-white/20'
-            title='Suivant'
-          >
-            <ChevronRight strokeWidth={2} className='h-7 w-7' />
-          </button>
-        )}
-        <div onClick={(e) => e.stopPropagation()} className='max-h-[90vh] max-w-[90vw] flex items-center justify-center'>
-          {imagesCache[imageVisionneuse.id] ? (
-            <img
-              src={imagesCache[imageVisionneuse.id]}
-              alt=''
-              className='max-h-[90vh] max-w-[90vw] object-contain'
-            />
-          ) : (
-            <Loader2 className='h-10 w-10 text-white animate-spin' />
+        <div className='relative flex-1 min-h-0 flex items-center justify-center'>
+          {indexVisionneuse !== null && indexVisionneuse > 0 && (
+            <button
+              type='button'
+              onClick={(e) => { e.stopPropagation(); setIndexVisionneuse(indexVisionneuse - 1) }}
+              className='hidden md:block absolute left-4 top-1/2 -translate-y-1/2 p-2 rounded-full bg-white/10 text-white hover:bg-white/20'
+              title='Précédent'
+            >
+              <ChevronLeft strokeWidth={2} className='h-7 w-7' />
+            </button>
           )}
+          {indexVisionneuse !== null && indexVisionneuse < toutesLesImages.length - 1 && (
+            <button
+              type='button'
+              onClick={(e) => { e.stopPropagation(); setIndexVisionneuse(indexVisionneuse + 1) }}
+              className='hidden md:block absolute right-4 top-1/2 -translate-y-1/2 p-2 rounded-full bg-white/10 text-white hover:bg-white/20'
+              title='Suivant'
+            >
+              <ChevronRight strokeWidth={2} className='h-7 w-7' />
+            </button>
+          )}
+          <div
+            ref={scrollVisionneuseRef}
+            onScroll={gererScrollVisionneuse}
+            className='flex md:hidden w-full h-full overflow-x-auto snap-x snap-mandatory [scrollbar-width:none] [&::-webkit-scrollbar]:hidden'
+          >
+            {toutesLesImages.map((image) => (
+              <div
+                key={image.id}
+                onClick={(e) => e.stopPropagation()}
+                className='w-full h-full shrink-0 snap-center flex items-center justify-center'
+              >
+                {imagesCache[image.id] ? (
+                  <img src={imagesCache[image.id]} alt='' className='w-full max-h-[65vh] object-contain' />
+                ) : (
+                  <Loader2 className='h-10 w-10 text-white animate-spin' />
+                )}
+              </div>
+            ))}
+          </div>
+          <div onClick={(e) => e.stopPropagation()} className='hidden md:flex md:max-h-[90vh] md:max-w-[90vw] items-center justify-center'>
+            {imagesCache[imageVisionneuse.id] ? (
+              <img
+                src={imagesCache[imageVisionneuse.id]}
+                alt=''
+                className='md:max-h-[90vh] md:max-w-[90vw] object-contain'
+              />
+            ) : (
+              <Loader2 className='h-10 w-10 text-white animate-spin' />
+            )}
+          </div>
         </div>
+        {toutesLesImages.length > 1 && (
+          <div onClick={(e) => e.stopPropagation()} className='shrink-0 flex items-center gap-2 overflow-x-auto px-4 py-3'>
+            {toutesLesImages.map((image, i) => (
+              <button
+                key={image.id}
+                type='button'
+                onClick={() => setIndexVisionneuse(i)}
+                className={`h-14 w-14 shrink-0 rounded-lg overflow-hidden border-2 ${i === indexVisionneuse ? 'border-white' : 'border-transparent opacity-60'}`}
+              >
+                {imagesCache[image.id] ? (
+                  <img src={imagesCache[image.id]} alt='' className='h-full w-full object-cover' />
+                ) : (
+                  <div className='h-full w-full bg-white/10' />
+                )}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
     )}
     </>

@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { collection, onSnapshot, type Timestamp } from 'firebase/firestore'
 import { onValue, ref } from 'firebase/database'
 import { db, rtdb } from '../firebase'
@@ -76,22 +76,33 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
     return unsubscribe
   }, [utilisateur])
 
-  const idsConversations = utilisateur
-    ? [ID_ANNONCES, ID_GROUPE, ...idsContacts.map((id) => idConversationPrivee(utilisateur.id, id))]
-    : []
+  const idsConversations = useMemo(
+    () => utilisateur
+      ? [ID_ANNONCES, ID_GROUPE, ...idsContacts.map((id) => idConversationPrivee(utilisateur.id, id))]
+      : [],
+    [utilisateur, idsContacts]
+  )
 
-  const messagesNonLus = utilisateur
-    ? idsConversations.filter((id) => {
-        const dernierMessageAt = conversations[id]?.dernierMessageAt
-        return !!dernierMessageAt && dernierMessageAt > (lectures[id]?.[utilisateur.id] ?? 0)
-      }).length
-    : 0
+  const messagesNonLus = useMemo(
+    () => utilisateur
+      ? idsConversations.filter((id) => {
+          const dernierMessageAt = conversations[id]?.dernierMessageAt
+          return !!dernierMessageAt && dernierMessageAt > (lectures[id]?.[utilisateur.id] ?? 0)
+        }).length
+      : 0,
+    [utilisateur, idsConversations, conversations, lectures]
+  )
 
   const mouvementsNonLus = useCompteurFirestore('mouvements', vues.mouvements ?? 0)
   const projetsNonLus = useCompteurFirestore('projets', vues.projets ?? 0)
 
+  const valeur = useMemo(
+    () => ({ messagesNonLus, mouvementsNonLus, projetsNonLus }),
+    [messagesNonLus, mouvementsNonLus, projetsNonLus]
+  )
+
   return (
-    <NotificationsContext.Provider value={{ messagesNonLus, mouvementsNonLus, projetsNonLus }}>
+    <NotificationsContext.Provider value={valeur}>
       {children}
     </NotificationsContext.Provider>
   )

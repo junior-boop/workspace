@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
 
 function ModaleBas({ open, onClose, title, children }: { open: boolean, onClose: () => void, title: string, children?: React.ReactNode }) {
@@ -24,10 +25,10 @@ function ModaleBas({ open, onClose, title, children }: { open: boolean, onClose:
 
   if (!visible) return null
 
-  return (
+  return createPortal(
     <div className='fixed inset-0 z-50 flex items-end justify-center'>
       <div onClick={onClose} className='absolute inset-0 bg-black/40' />
-      <div className={`relative w-full max-w-250 bg-white rounded-t-3xl p-8 ${closing ? 'animate-slide-down' : 'animate-slide-up'}`}>
+      <div className={`relative w-full max-w-250 max-h-[90vh] overflow-y-auto bg-white rounded-t-3xl p-4 md:p-8 ${closing ? 'animate-slide-down' : 'animate-slide-up'}`}>
         <div className='flex items-center justify-between mb-6'>
           <h2 className='text-xl font-bold text-gray-800'>{title}</h2>
           <button onClick={onClose} className='text-gray-500 hover:text-gray-800'>
@@ -36,7 +37,8 @@ function ModaleBas({ open, onClose, title, children }: { open: boolean, onClose:
         </div>
         {children}
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }
 

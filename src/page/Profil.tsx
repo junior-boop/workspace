@@ -65,7 +65,7 @@ function Profil() {
   }
 
   return (
-    <div className='p-8'>
+    <div className='p-4 md:p-8'>
       <div className='flex items-center justify-between'>
         <h1 className='text-2xl font-bold text-gray-800'>Profil</h1>
         <span className='inline-block px-3 py-1 rounded-full text-sm font-medium bg-blue-50 text-blue-700'>
@@ -73,8 +73,8 @@ function Profil() {
         </span>
       </div>
 
-      <form onSubmit={enregistrerProfil} className='mt-6 flex gap-6'>
-        <div className='w-[35%] flex flex-col items-center'>
+      <form onSubmit={enregistrerProfil} className='mt-6 flex flex-col md:flex-row gap-6'>
+        <div className='w-full md:w-[35%] flex flex-col items-center'>
           <div className='relative'>
             <div className='h-42 w-42 rounded-full bg-gray-100 overflow-hidden flex items-center justify-center'>
               {photo ? (
@@ -101,7 +101,7 @@ function Profil() {
         </div>
 
         <div className='flex-1 flex flex-col gap-5'>
-          <div className='flex gap-4'>
+          <div className='flex flex-col sm:flex-row gap-4'>
             <div className='flex-1'>
               <label className='block text-sm font-medium text-gray-700 mb-2'>Nom</label>
               <input

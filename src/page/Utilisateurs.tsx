@@ -107,11 +107,15 @@ function Utilisateurs() {
     setModaleOuverte(true)
   }
 
-  const supprimerUtilisateur = async (id: string) => {
+  const supprimerUtilisateur = async (utilisateur: UtilisateurFirestore) => {
+    if (utilisateur.role === 'fondateur') {
+      window.alert('Impossible de supprimer un fondateur.')
+      return
+    }
     if (!window.confirm('Voulez-vous vraiment supprimer cet utilisateur ?')) return
-    setIdEnSuppression(id)
+    setIdEnSuppression(utilisateur.id)
     try {
-      await deleteDoc(doc(db, 'utilisateurs', id))
+      await deleteDoc(doc(db, 'utilisateurs', utilisateur.id))
     } finally {
       setIdEnSuppression(null)
     }
@@ -162,12 +166,12 @@ function Utilisateurs() {
   }
 
   return (
-    <div className='p-8'>
-      <div className='flex items-center justify-between'>
+    <div className='p-4 md:p-8'>
+      <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
         <h1 className='text-2xl font-bold text-gray-800'>Les utilisateurs</h1>
         <button
           onClick={ouvrirAjout}
-          className='flex items-center gap-2 rounded-full bg-blue-600 text-white font-medium px-4 py-2 hover:bg-blue-700'
+          className='flex items-center gap-2 rounded-full bg-blue-600 text-white font-medium px-4 py-2 hover:bg-blue-700 w-max'
         >
           <Plus strokeWidth={2} className='h-5 w-5' />
           Ajouter un utilisateur
@@ -187,17 +191,17 @@ function Utilisateurs() {
         )}
 
         {utilisateurs.map((utilisateur) => (
-          <div key={utilisateur.id} className='flex items-center gap-4 rounded-2xl border border-gray-200 p-4'>
+          <div key={utilisateur.id} className='flex items-center gap-2 sm:gap-4 rounded-2xl border border-gray-200 p-4'>
             {utilisateur.photo ? (
-              <img src={utilisateur.photo} alt='' className='h-10 w-10 rounded-full object-cover object-top' />
+              <img src={utilisateur.photo} alt='' className='h-10 w-10 rounded-full object-cover object-top shrink-0' />
             ) : (
-              <CircleUserRound strokeWidth={2} className='h-10 w-10 text-gray-400' />
+              <CircleUserRound strokeWidth={2} className='h-10 w-10 text-gray-400 shrink-0' />
             )}
-            <div className='flex-1'>
-              <p className='font-medium text-gray-800'>{utilisateur.nom} {utilisateur.prenoms}</p>
-              <p className='text-sm text-gray-500'>{utilisateur.email} · {utilisateur.telephone}</p>
+            <div className='flex-1 min-w-0'>
+              <p className='font-medium text-gray-800 truncate'>{utilisateur.nom} {utilisateur.prenoms}</p>
+              <p className='text-sm text-gray-500 truncate'>{utilisateur.email} · {utilisateur.telephone}</p>
             </div>
-            <span className={`px-3 py-1 rounded-full text-sm font-medium ${utilisateur.role === 'collaborateur' ? 'bg-gray-100 text-gray-700' : 'bg-blue-50 text-blue-700'}`}>
+            <span className={`shrink-0 px-3 py-1 rounded-full text-sm font-medium ${utilisateur.role === 'collaborateur' ? 'bg-gray-100 text-gray-700' : 'bg-blue-50 text-blue-700'}`}>
               {LABELS_ROLE[utilisateur.role]}
             </span>
             <button
@@ -207,18 +211,20 @@ function Utilisateurs() {
             >
               <Pencil strokeWidth={2} className='h-4 w-4' />
             </button>
-            <button
-              type='button'
-              onClick={() => supprimerUtilisateur(utilisateur.id)}
-              disabled={idEnSuppression === utilisateur.id}
-              className='flex items-center justify-center h-9 w-9 rounded-full text-red-500 hover:bg-red-50 disabled:opacity-50'
-            >
-              {idEnSuppression === utilisateur.id ? (
-                <Loader2 className='h-4 w-4 animate-spin' />
-              ) : (
-                <Trash2 strokeWidth={2} className='h-4 w-4' />
-              )}
-            </button>
+            {utilisateur.role !== 'fondateur' && (
+              <button
+                type='button'
+                onClick={() => supprimerUtilisateur(utilisateur)}
+                disabled={idEnSuppression === utilisateur.id}
+                className='flex items-center justify-center h-9 w-9 rounded-full text-red-500 hover:bg-red-50 disabled:opacity-50'
+              >
+                {idEnSuppression === utilisateur.id ? (
+                  <Loader2 className='h-4 w-4 animate-spin' />
+                ) : (
+                  <Trash2 strokeWidth={2} className='h-4 w-4' />
+                )}
+              </button>
+            )}
           </div>
         ))}
       </div>
@@ -228,8 +234,8 @@ function Utilisateurs() {
         onClose={() => { setModaleOuverte(false); reinitialiserFormulaire() }}
         title={idEnEdition ? 'Modifier un utilisateur' : 'Ajouter un utilisateur'}
       >
-        <form onSubmit={enregistrerUtilisateur} className='flex gap-6'>
-          <div className='w-[35%] flex flex-col items-center'>
+        <form onSubmit={enregistrerUtilisateur} className='flex flex-col md:flex-row gap-6'>
+          <div className='w-full md:w-[35%] flex flex-col items-center'>
             <div className='relative'>
               <div className='h-42 w-42 rounded-full bg-gray-100 overflow-hidden flex items-center justify-center'>
                 {photo ? (
@@ -256,7 +262,7 @@ function Utilisateurs() {
           </div>
 
           <div className='flex-1 flex flex-col gap-5'>
-            <div className='flex gap-4'>
+            <div className='flex flex-col sm:flex-row gap-4'>
               <div className='flex-1'>
                 <label className='block text-sm font-medium text-gray-700 mb-2'>Nom</label>
                 <input
@@ -377,7 +383,7 @@ function Utilisateurs() {
 
             <div>
               <label className='block text-sm font-medium text-gray-700 mb-2'>Rôle</label>
-              <div className='flex gap-2'>
+              <div className='flex flex-wrap gap-2'>
                 <button
                   type='button'
                   onClick={() => setRole('fondateur')}

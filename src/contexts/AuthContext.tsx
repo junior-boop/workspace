@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { doc, onSnapshot, Timestamp } from 'firebase/firestore'
 import { onDisconnect, onValue, ref, serverTimestamp as rtdbServerTimestamp, set } from 'firebase/database'
 import { db, rtdb } from '../firebase'
@@ -71,18 +71,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [id])
 
-  const connecter = (nouvelId: string) => {
+  const connecter = useCallback((nouvelId: string) => {
     localStorage.setItem(CLE_SESSION, nouvelId)
     setId(nouvelId)
-  }
+  }, [])
 
-  const deconnecter = () => {
+  const deconnecter = useCallback(() => {
     localStorage.removeItem(CLE_SESSION)
     setId(null)
-  }
+  }, [])
+
+  const valeur = useMemo(
+    () => ({ utilisateur, chargement, connecter, deconnecter }),
+    [utilisateur, chargement, connecter, deconnecter]
+  )
 
   return (
-    <AuthContext.Provider value={{ utilisateur, chargement, connecter, deconnecter }}>
+    <AuthContext.Provider value={valeur}>
       {children}
     </AuthContext.Provider>
   )

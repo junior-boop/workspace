@@ -1,6 +1,6 @@
-import { useEffect, useState, type SubmitEvent } from 'react'
-import { Plus, ArrowDownCircle, ArrowUpCircle, Loader2 } from 'lucide-react'
-import { collection, doc, onSnapshot, orderBy, query, serverTimestamp, setDoc, Timestamp } from 'firebase/firestore'
+import { useEffect, useMemo, useState, type SubmitEvent } from 'react'
+import { Plus, ArrowDownCircle, ArrowUpCircle, Loader2, Trash2 } from 'lucide-react'
+import { collection, deleteDoc, doc, increment, onSnapshot, orderBy, query, serverTimestamp, setDoc, Timestamp, updateDoc } from 'firebase/firestore'
 import { ref, set } from 'firebase/database'
 import { db, rtdb } from '../firebase'
 import { useAuth } from '../contexts/AuthContext'
@@ -9,7 +9,7 @@ import ModaleBas from '../composants/ModaleBas'
 import SelectMultiple from '../composants/SelectMultiple'
 
 const MOTIFS_SORTIE = ['Achat fournitures', 'Transport', 'Salaire', 'Entretien', 'Autre']
-const MOTIFS_ENTREE = ['Cotisation des membres', 'Vente', 'Remboursement', 'Apport', 'Subvention', 'Autre']
+const MOTIFS_ENTREE = ['Cotisation des membres', 'Versement projet', 'Vente', 'Remboursement', 'Apport', 'Subvention', 'Autre']
 const MOTIF_COTISATION = 'Cotisation des membres'
 const NOMBRE_PAR_PAGE = 25
 
@@ -24,6 +24,7 @@ type Mouvement = {
   montant: number
   motifs: string[]
   membreId: string | null
+  projetId?: string | null
   createdAt: Timestamp | null
   updatedAt: Timestamp | null
 }
@@ -41,7 +42,9 @@ function MouvementDeCaisse() {
   const [mouvements, setMouvements] = useState<MouvementFirestore[]>([])
   const [chargementMouvements, setChargementMouvements] = useState(true)
   const [enregistrementEnCours, setEnregistrementEnCours] = useState(false)
+  const [suppressionEnCours, setSuppressionEnCours] = useState(false)
   const [idEnEdition, setIdEnEdition] = useState<string | null>(null)
+  const [projetIdEnEdition, setProjetIdEnEdition] = useState<string | null>(null)
   const [nombreAffiche, setNombreAffiche] = useState(NOMBRE_PAR_PAGE)
 
   useEffect(() => {
@@ -75,6 +78,7 @@ function MouvementDeCaisse() {
 
   const reinitialiserFormulaire = () => {
     setIdEnEdition(null)
+    setProjetIdEnEdition(null)
     setType('entree')
     setMontant('')
     setMotifs([])
@@ -88,6 +92,7 @@ function MouvementDeCaisse() {
 
   const ouvrirEdition = (mouvement: MouvementFirestore) => {
     setIdEnEdition(mouvement.id)
+    setProjetIdEnEdition(mouvement.projetId ?? null)
     setType(mouvement.type)
     setMontant(String(mouvement.montant))
     setMotifs(mouvement.motifs)
@@ -103,19 +108,28 @@ function MouvementDeCaisse() {
     return m ? `${m.nom} ${m.prenoms}` : null
   }
 
-  const solde = mouvements.reduce((total, m) => total + (m.type === 'entree' ? m.montant : -m.montant), 0)
+  const solde = useMemo(
+    () => mouvements.reduce((total, m) => total + (m.type === 'entree' ? m.montant : -m.montant), 0),
+    [mouvements]
+  )
 
-  const mouvementsAffiches = mouvements.slice(0, nombreAffiche)
+  const mouvementsAffiches = useMemo(
+    () => mouvements.slice(0, nombreAffiche),
+    [mouvements, nombreAffiche]
+  )
 
-  const groupesParJour = mouvementsAffiches.reduce((groupes, mouvement) => {
-    const date = mouvement.createdAt ? mouvement.createdAt.toDate() : new Date()
-    const jour = date.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
-    const jourCapitalise = jour.charAt(0).toUpperCase() + jour.slice(1)
-    const liste = groupes.get(jourCapitalise) ?? []
-    liste.push(mouvement)
-    groupes.set(jourCapitalise, liste)
-    return groupes
-  }, new Map<string, MouvementFirestore[]>())
+  const groupesParJour = useMemo(
+    () => mouvementsAffiches.reduce((groupes, mouvement) => {
+      const date = mouvement.createdAt ? mouvement.createdAt.toDate() : new Date()
+      const jour = date.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
+      const jourCapitalise = jour.charAt(0).toUpperCase() + jour.slice(1)
+      const liste = groupes.get(jourCapitalise) ?? []
+      liste.push(mouvement)
+      groupes.set(jourCapitalise, liste)
+      return groupes
+    }, new Map<string, MouvementFirestore[]>()),
+    [mouvementsAffiches]
+  )
 
   const enregistrerMouvement = async (e: SubmitEvent) => {
     e.preventDefault()
@@ -146,13 +160,32 @@ function MouvementDeCaisse() {
     }
   }
 
+  const supprimerMouvement = async () => {
+    if (!idEnEdition) return
+    if (!window.confirm('Voulez-vous vraiment supprimer ce mouvement de caisse ?')) return
+    setSuppressionEnCours(true)
+    try {
+      await deleteDoc(doc(db, 'mouvements', idEnEdition))
+      if (projetIdEnEdition && type === 'entree') {
+        await updateDoc(doc(db, 'projets', projetIdEnEdition), {
+          montantVerse: increment(-Number(montant)),
+          updatedAt: serverTimestamp(),
+        })
+      }
+      reinitialiserFormulaire()
+      setModaleOuverte(false)
+    } finally {
+      setSuppressionEnCours(false)
+    }
+  }
+
   return (
-    <div className='p-8'>
-      <div className='sticky top-0 -mx-8 -mt-8 z-10 bg-white px-8 pt-8 pb-4 flex items-center justify-between' is-header>
+    <div className='p-4 md:p-8'>
+      <div className='sticky top-0 -mx-4 md:-mx-8 -mt-4 md:-mt-8 z-10 bg-white px-4 md:px-8 pt-4 md:pt-8 pb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between' is-header>
         <h1 className='text-2xl font-bold text-gray-800'>Mouvements de caisse</h1>
         <button
           onClick={ouvrirAjout}
-          className='flex items-center gap-2 rounded-full bg-blue-600 text-white font-medium px-4 py-2 hover:bg-blue-700'
+          className='flex items-center gap-2 rounded-full bg-blue-600 text-white font-medium px-4 py-2 hover:bg-blue-700 w-max'
         >
           <Plus strokeWidth={2} className='h-5 w-5' />
           Ajouter un mouvement de caisse
@@ -182,21 +215,21 @@ function MouvementDeCaisse() {
                 <div
                   key={mouvement.id}
                   onClick={() => ouvrirEdition(mouvement)}
-                  className='flex items-center gap-4 rounded-2xl border border-gray-200 p-4 cursor-pointer hover:bg-gray-50'
+                  className='flex items-center gap-2 sm:gap-4 rounded-2xl border border-gray-200 p-4 cursor-pointer hover:bg-gray-50'
                 >
                   {mouvement.type === 'entree' ? (
-                    <ArrowUpCircle strokeWidth={2} className='h-10 w-10 text-green-600' />
+                    <ArrowUpCircle strokeWidth={2} className='h-10 w-10 text-green-600 shrink-0' />
                   ) : (
-                    <ArrowDownCircle strokeWidth={2} className='h-10 w-10 text-red-600' />
+                    <ArrowDownCircle strokeWidth={2} className='h-10 w-10 text-red-600 shrink-0' />
                   )}
-                  <div className='flex-1'>
-                    <p className='font-medium text-gray-800'>{mouvement.motifs.join(', ') || 'Sans motif'}</p>
-                    <p className='text-sm text-gray-500'>
+                  <div className='flex-1 min-w-0'>
+                    <p className='font-medium text-gray-800 truncate'>{mouvement.motifs.join(', ') || 'Sans motif'}</p>
+                    <p className='text-sm text-gray-500 truncate'>
                       {mouvement.createdAt ? mouvement.createdAt.toDate().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) : 'Envoi en cours...'}
                       {nomMembre(mouvement.membreId) && ` · ${nomMembre(mouvement.membreId)}`}
                     </p>
                   </div>
-                  <span className={`font-semibold ${mouvement.type === 'entree' ? 'text-green-700' : 'text-red-700'}`}>
+                  <span className={`shrink-0 font-semibold ${mouvement.type === 'entree' ? 'text-green-700' : 'text-red-700'}`}>
                     {mouvement.type === 'entree' ? '+' : '-'}{mouvement.montant.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} FCFA
                   </span>
                 </div>
@@ -273,14 +306,26 @@ function MouvementDeCaisse() {
             </div>
           )}
 
-          <button
-            type='submit'
-            disabled={enregistrementEnCours}
-            className='mt-2 flex items-center justify-center gap-2 rounded-full bg-blue-600 text-white font-medium px-4 py-3 hover:bg-blue-700 disabled:opacity-70 disabled:cursor-not-allowed'
-          >
-            {enregistrementEnCours && <Loader2 className='h-5 w-5 animate-spin' />}
-            {enregistrementEnCours ? 'Enregistrement...' : idEnEdition ? 'Modifier' : 'Enregistrer'}
-          </button>
+          <div className='flex items-center gap-3 mt-2'>
+            <button
+              type='submit'
+              disabled={enregistrementEnCours || suppressionEnCours}
+              className='flex-1 flex items-center justify-center gap-2 rounded-full bg-blue-600 text-white font-medium px-4 py-3 hover:bg-blue-700 disabled:opacity-70 disabled:cursor-not-allowed'
+            >
+              {enregistrementEnCours && <Loader2 className='h-5 w-5 animate-spin' />}
+              {enregistrementEnCours ? 'Enregistrement...' : idEnEdition ? 'Modifier' : 'Enregistrer'}
+            </button>
+            {idEnEdition && (
+              <button
+                type='button'
+                onClick={supprimerMouvement}
+                disabled={enregistrementEnCours || suppressionEnCours}
+                className='flex items-center justify-center h-12 w-12 rounded-full text-red-500 hover:bg-red-50 disabled:opacity-50'
+              >
+                {suppressionEnCours ? <Loader2 className='h-5 w-5 animate-spin' /> : <Trash2 strokeWidth={2} className='h-5 w-5' />}
+              </button>
+            )}
+          </div>
         </form>
       </ModaleBas>
     </div>
