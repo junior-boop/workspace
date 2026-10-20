@@ -1,0 +1,14 @@
+function Layout({ children, outils }: { children: React.ReactNode, outils?: React.ReactNode }) {
+  return (
+    <div className='flex gap-6 h-full'>
+      <div className='w-250 h-full overflow-y-auto overflow-x-hidden border-r border-gray-200'>
+        {children}
+      </div>
+      <div className='flex-1'>
+        {outils}
+      </div>
+    </div>
+  )
+}
+
+export default Layout
