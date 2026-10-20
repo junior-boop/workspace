@@ -4,6 +4,7 @@ import { collection, deleteDoc, doc, onSnapshot, serverTimestamp, setDoc, Timest
 import { db } from '../firebase'
 import ModaleBas from '../composants/ModaleBas'
 import { hasherMotDePasse } from '../utils/motDePasse'
+import { blobVersDataUrl, compresserImageEnJpeg } from '../utils/image'
 
 type Role = 'fondateur' | 'responsable' | 'collaborateur'
 
@@ -61,12 +62,11 @@ function Utilisateurs() {
   const [idEnSuppression, setIdEnSuppression] = useState<string | null>(null)
   const inputPhotoRef = useRef<HTMLInputElement>(null)
 
-  const choisirPhoto = (e: ChangeEvent<HTMLInputElement>) => {
+  const choisirPhoto = async (e: ChangeEvent<HTMLInputElement>) => {
     const fichier = e.target.files?.[0]
     if (!fichier) return
-    const lecteur = new FileReader()
-    lecteur.onload = () => setPhoto(lecteur.result as string)
-    lecteur.readAsDataURL(fichier)
+    const imageCompressee = await compresserImageEnJpeg(fichier)
+    setPhoto(await blobVersDataUrl(imageCompressee))
   }
 
   const reinitialiserFormulaire = () => {

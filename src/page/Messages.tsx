@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState, type ChangeEvent, type SubmitEvent } from 'react'
-import { Check, CheckCheck, CircleUserRound, Loader2, Megaphone, Send, Star, Users } from 'lucide-react'
-import { collection, doc, onSnapshot, updateDoc, arrayUnion, arrayRemove } from 'firebase/firestore'
+import { Check, CheckCheck, ChevronLeft, ChevronRight, CircleUserRound, Download, ImagePlus, Loader2, Megaphone, Reply, Send, SendHorizonal, Star, Trash2, Users, X } from 'lucide-react'
+import { addDoc, collection, deleteDoc, doc, getDoc, onSnapshot, serverTimestamp, updateDoc, arrayUnion, arrayRemove } from 'firebase/firestore'
 import { onValue, push, ref, remove, set, update } from 'firebase/database'
 import { db, rtdb } from '../firebase'
 import { useAuth } from '../contexts/AuthContext'
 import { ID_ANNONCES, ID_GROUPE, idConversationPrivee } from '../utils/conversation'
+import { blobVersDataUrl, compresserImageEnJpeg } from '../utils/image'
 
 const DELAI_FRAPPE_MS = 3000
 
@@ -20,6 +21,19 @@ type Message = {
   expediteurId: string
   texte: string
   envoyeAt: number
+  reponseA?: {
+    id: string
+    texte: string
+    expediteurId: string
+    imageId?: string
+  }
+  supprime?: boolean
+  imageIds?: string[]
+}
+
+type ImageConversation = {
+  id: string
+  messageId: string
 }
 
 type ResumeConversation = {
@@ -43,8 +57,14 @@ function Messages() {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
   const [texte, setTexte] = useState('')
+  const [messageEnReponse, setMessageEnReponse] = useState<Message | null>(null)
+  const [imagesCache, setImagesCache] = useState<Record<string, string>>({})
+  const [envoiImageEnCours, setEnvoiImageEnCours] = useState(false)
+  const [indexVisionneuse, setIndexVisionneuse] = useState<number | null>(null)
   const finDesMessagesRef = useRef<HTMLDivElement>(null)
   const frappeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const messagesRef = useRef<Record<string, HTMLDivElement | null>>({})
+  const inputImageRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     if (!utilisateur) return
@@ -110,6 +130,20 @@ function Messages() {
   }, [idConversationSelectionnee])
 
   useEffect(() => {
+    setMessageEnReponse(null)
+  }, [idConversationSelectionnee])
+
+  useEffect(() => {
+    const idsManquants = [...new Set(messages.flatMap((m) => m.imageIds ?? []))]
+      .filter((id) => !(id in imagesCache))
+    idsManquants.forEach(async (id) => {
+      const snap = await getDoc(doc(db, 'messagesImages', id))
+      const donnees = snap.data()?.data as string | undefined
+      if (donnees) setImagesCache((prev) => ({ ...prev, [id]: donnees }))
+    })
+  }, [messages, imagesCache])
+
+  useEffect(() => {
     finDesMessagesRef.current?.scrollIntoView({ block: 'end' })
   }, [messages])
 
@@ -117,6 +151,21 @@ function Messages() {
     if (!utilisateur || !idConversationSelectionnee) return
     set(ref(rtdb, `lectures/${idConversationSelectionnee}/${utilisateur.id}`), Date.now())
   }, [utilisateur, idConversationSelectionnee, messages.length])
+
+  const toutesLesImages: ImageConversation[] = messages.flatMap((m) =>
+    (m.imageIds ?? []).map((id) => ({ id, messageId: m.id }))
+  )
+
+  useEffect(() => {
+    if (indexVisionneuse === null) return
+    const gererClavier = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setIndexVisionneuse(null)
+      else if (e.key === 'ArrowLeft') setIndexVisionneuse((i) => (i !== null && i > 0 ? i - 1 : i))
+      else if (e.key === 'ArrowRight') setIndexVisionneuse((i) => (i !== null ? Math.min(i + 1, Math.max(0, toutesLesImages.length - 1)) : i))
+    }
+    window.addEventListener('keydown', gererClavier)
+    return () => window.removeEventListener('keydown', gererClavier)
+  }, [indexVisionneuse, toutesLesImages.length])
 
   if (!utilisateur) return null
 
@@ -146,6 +195,14 @@ function Messages() {
   const estLuParTous = (conversationId: string, timestamp: number) =>
     autresParticipants.length > 0 && autresParticipants.every((id) => (lectures[conversationId]?.[id] ?? 0) >= timestamp)
 
+  const nomExpediteur = (id: string) => {
+    if (id === utilisateur.id) return 'Vous'
+    const contact = contacts.find((c) => c.id === id)
+    return contact ? `${contact.prenoms.split(' ')[0]} ${contact.nom}` : 'Utilisateur'
+  }
+
+  const peutEnvoyer = !(selectedId === ID_ANNONCES && !peutPublierAnnonce)
+
   const basculerFavori = async (contactId: string) => {
     const estFavori = (utilisateur.favoris ?? []).includes(contactId)
     await updateDoc(doc(db, 'utilisateurs', utilisateur.id), {
@@ -167,6 +224,13 @@ function Messages() {
     }
   }
 
+  const construireReponseA = (message: Message) => ({
+    id: message.id,
+    texte: message.texte || (message.imageIds?.length ? '📷 Photo' : ''),
+    expediteurId: message.expediteurId,
+    ...(message.imageIds?.[0] ? { imageId: message.imageIds[0] } : {}),
+  })
+
   const envoyerMessage = async (e: SubmitEvent) => {
     e.preventDefault()
     const texteEnvoye = texte.trim()
@@ -175,15 +239,90 @@ function Messages() {
     setTexte('')
     if (frappeTimeoutRef.current) clearTimeout(frappeTimeoutRef.current)
     remove(ref(rtdb, `frappe/${idConversationSelectionnee}/${utilisateur.id}`))
+    const reponseA = messageEnReponse ? construireReponseA(messageEnReponse) : null
+    setMessageEnReponse(null)
     await push(ref(rtdb, `messages/${idConversationSelectionnee}`), {
       expediteurId: utilisateur.id,
       texte: texteEnvoye,
       envoyeAt: Date.now(),
+      ...(reponseA ? { reponseA } : {}),
     })
     await update(ref(rtdb, `conversations/${idConversationSelectionnee}`), {
       dernierMessage: texteEnvoye,
       dernierMessageAt: Date.now(),
     })
+  }
+
+  const envoyerImages = async (e: ChangeEvent<HTMLInputElement>) => {
+    const fichiers = Array.from(e.target.files ?? [])
+    e.target.value = ''
+    if (fichiers.length === 0 || !idConversationSelectionnee) return
+    if (selectedId === ID_ANNONCES && !peutPublierAnnonce) return
+    setEnvoiImageEnCours(true)
+    try {
+      const imageIds = await Promise.all(
+        fichiers.map(async (fichier) => {
+          const imageCompressee = await compresserImageEnJpeg(fichier)
+          const imageBase64 = await blobVersDataUrl(imageCompressee)
+          const documentImage = await addDoc(collection(db, 'messagesImages'), {
+            data: imageBase64,
+            expediteurId: utilisateur.id,
+            createdAt: serverTimestamp(),
+          })
+          return documentImage.id
+        })
+      )
+      const reponseA = messageEnReponse ? construireReponseA(messageEnReponse) : null
+      setMessageEnReponse(null)
+      await push(ref(rtdb, `messages/${idConversationSelectionnee}`), {
+        expediteurId: utilisateur.id,
+        texte: '',
+        imageIds,
+        envoyeAt: Date.now(),
+        ...(reponseA ? { reponseA } : {}),
+      })
+      await update(ref(rtdb, `conversations/${idConversationSelectionnee}`), {
+        dernierMessage: imageIds.length > 1 ? `📷 ${imageIds.length} photos` : '📷 Photo',
+        dernierMessageAt: Date.now(),
+      })
+    } finally {
+      setEnvoiImageEnCours(false)
+    }
+  }
+
+  const telechargerImage = (id: string) => {
+    const donnees = imagesCache[id]
+    if (!donnees) return
+    const lien = document.createElement('a')
+    lien.href = donnees
+    lien.download = `image-${id}.jpg`
+    lien.click()
+  }
+
+  const allerAuMessage = (id: string) => {
+    messagesRef.current[id]?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+  }
+
+  const supprimerMessage = async (message: Message) => {
+    if (!idConversationSelectionnee || message.expediteurId !== utilisateur.id) return
+    if (!window.confirm('Supprimer ce message ?')) return
+    await Promise.all((message.imageIds ?? []).map((id) => deleteDoc(doc(db, 'messagesImages', id))))
+    await update(ref(rtdb, `messages/${idConversationSelectionnee}/${message.id}`), {
+      texte: '',
+      supprime: true,
+      imageIds: null,
+    })
+    if (messages[messages.length - 1]?.id === message.id) {
+      await update(ref(rtdb, `conversations/${idConversationSelectionnee}`), {
+        dernierMessage: 'Message supprimé',
+      })
+    }
+    if (messageEnReponse?.id === message.id) setMessageEnReponse(null)
+  }
+
+  const ouvrirVisionneuse = (id: string) => {
+    const index = toutesLesImages.findIndex((image) => image.id === id)
+    if (index !== -1) setIndexVisionneuse(index)
   }
 
   const contactsFavoris = contacts.filter((contact) => (utilisateur.favoris ?? []).includes(contact.id))
@@ -207,7 +346,10 @@ function Messages() {
       ? (estEnLigne(contactSelectionne.id) ? 'En ligne' : 'Hors ligne')
       : null
 
+  const imageVisionneuse = indexVisionneuse !== null ? toutesLesImages[indexVisionneuse] : null
+
   return (
+    <>
     <div className='h-full flex'>
       <div className='w-80 h-full flex flex-col border-r border-gray-200'>
         <div className='px-4 py-4 border-b border-gray-200'>
@@ -252,7 +394,12 @@ function Messages() {
               <Megaphone strokeWidth={2} className='h-5 w-5 text-white' />
             </div>
             <div className='flex-1 min-w-0'>
-              <p className='font-medium text-gray-800'>Annonces</p>
+              <p className='font-medium text-gray-800'>
+                Annonces
+                {resumes[ID_ANNONCES]?.dernierMessageAt && (
+                  <span className='text-xs text-gray-400'> - {new Date(resumes[ID_ANNONCES]!.dernierMessageAt!).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</span>
+                )}
+              </p>
               <p className='text-sm text-gray-500 truncate'>{texteApercu(ID_ANNONCES, resumes[ID_ANNONCES]?.dernierMessage, 'Annonces de la direction')}</p>
             </div>
           </button>
@@ -266,7 +413,12 @@ function Messages() {
               <Users strokeWidth={2} className='h-5 w-5 text-white' />
             </div>
             <div className='flex-1 min-w-0'>
-              <p className='font-medium text-gray-800'>Groupe</p>
+              <p className='font-medium text-gray-800'>
+                Groupe
+                {resumes[ID_GROUPE]?.dernierMessageAt && (
+                  <span className='text-xs text-gray-400'> - {new Date(resumes[ID_GROUPE]!.dernierMessageAt!).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</span>
+                )}
+              </p>
               <p className='text-sm text-gray-500 truncate'>{texteApercu(ID_GROUPE, resumes[ID_GROUPE]?.dernierMessage, 'Discussion entre tous les membres')}</p>
             </div>
           </button>
@@ -299,7 +451,12 @@ function Messages() {
                     )}
                   </div>
                   <div className='flex-1 min-w-0'>
-                    <p className='font-medium text-gray-800 truncate'>{contact.prenoms.split(' ')[0]} {contact.nom}</p>
+                    <p className='font-medium text-gray-800 truncate'>
+                      {contact.prenoms.split(' ')[0]} {contact.nom}
+                      {resume?.dernierMessageAt && (
+                        <span className='text-xs text-gray-400'> - {new Date(resume.dernierMessageAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</span>
+                      )}
+                    </p>
                     <p className='text-sm text-gray-500 truncate'>{texteApercu(idConversationContact, resume?.dernierMessage, 'Aucun message')}</p>
                   </div>
                 </button>
@@ -357,31 +514,149 @@ function Messages() {
                   <div>
                     <p className='font-medium text-gray-800'>{contactSelectionne?.prenoms} {contactSelectionne?.nom}</p>
                     {sousTitreThread && <p className='text-xs text-gray-500'>{sousTitreThread}</p>}
+                    
                   </div>
                 </>
               )}
             </div>
 
-            <div className='flex-1 overflow-y-auto px-6 py-4 flex flex-col gap-3'>
-              {messages.map((message) => {
+            <div className='flex-1 overflow-y-auto px-6 py-4 flex flex-col'>
+              {messages.map((message, index) => {
                 const estMoi = message.expediteurId === utilisateur.id
+                const estAnnonce = selectedId === ID_ANNONCES
                 const expediteur = contacts.find((contact) => contact.id === message.expediteurId)
+                const groupePrecedent = index > 0 && messages[index - 1].expediteurId === message.expediteurId
+                const groupeSuivant = index < messages.length - 1 && messages[index + 1].expediteurId === message.expediteurId
+                const arrondi = `${groupePrecedent ? 'rounded-t-[4px]' : 'rounded-t-xl'} ${groupeSuivant ? 'rounded-b-[4px]' : 'rounded-b-xl'}`
+                const estImage = !!message.imageIds?.length && !message.supprime
                 return (
-                  <div key={message.id} className={`flex ${estMoi ? 'justify-end' : 'justify-start'}`}>
-                    <div className={`max-w-[60%] rounded-xl px-4 py-2 ${estMoi ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-800'}`}>
-                      {(selectedId === ID_ANNONCES || selectedId === ID_GROUPE) && !estMoi && (
-                        <p className='text-xs font-medium mb-1 opacity-70'>{expediteur?.prenoms.split(' ')[0]} {expediteur?.nom}</p>
+                  <div
+                    key={message.id}
+                    ref={(el) => { messagesRef.current[message.id] = el }}
+                    className={`group flex items-center gap-1 ${estAnnonce ? 'justify-center' : estMoi ? 'justify-end' : 'justify-start'} ${index === 0 ? '' : groupePrecedent ? 'mt-1' : 'mt-3'}`}
+                  >
+                    {estMoi && !message.supprime && (
+                      <div className='flex items-center opacity-0 group-hover:opacity-100'>
+                        <button
+                          type='button'
+                          onClick={() => supprimerMessage(message)}
+                          className='p-1 text-gray-400 hover:text-red-500'
+                          title='Supprimer'
+                        >
+                          <Trash2 strokeWidth={2} className='h-4 w-4' />
+                        </button>
+                        <button
+                          type='button'
+                          onClick={() => setMessageEnReponse(message)}
+                          className='p-1 text-gray-400 hover:text-gray-600'
+                          title='Répondre'
+                        >
+                          <Reply strokeWidth={2} className='h-4 w-4' />
+                        </button>
+                      </div>
+                    )}
+                    <div className={`${estImage ? 'w-[45%]' : estAnnonce ? 'w-[70%]' : 'max-w-[60%]'} ${arrondi} overflow-hidden ${estMoi ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-800'}`}>
+                      {estAnnonce && (
+                        <p className='text-[11px] font-medium opacity-70 px-4 pt-2'>
+                          {estMoi ? `${utilisateur.prenoms.split(' ')[0]} ${utilisateur.nom}` : `${expediteur?.prenoms.split(' ')[0]} ${expediteur?.nom}`}
+                        </p>
                       )}
-                      <p>{message.texte} - <span className={`text-xs mt-1 ${estMoi ? 'text-blue-100' : 'text-gray-400'}`}>
-                        {new Date(message.envoyeAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
-                      </span>
-                        {estMoi && idConversationSelectionnee && (
-                          estLuParTous(idConversationSelectionnee, message.envoyeAt)
-                            ? <CheckCheck className='inline-block h-3.5 w-3.5 ml-1 text-blue-100' />
-                            : <Check className='inline-block h-3.5 w-3.5 ml-1 text-blue-100' />
-                        )}
-                      </p>
+                      {selectedId === ID_GROUPE && !estMoi && (
+                        <p className='text-xs font-medium mb-1 opacity-70 px-4'>{expediteur?.prenoms.split(' ')[0]} {expediteur?.nom}</p>
+                      )}
+                      {message.supprime ? (
+                        <p className={`px-4 py-2 italic text-sm ${estMoi ? 'text-blue-100' : 'text-gray-400'}`}>Message supprimé</p>
+                      ) : (
+                        <>
+                          {message.reponseA && (
+                            <button
+                              type='button'
+                              onClick={() => allerAuMessage(message.reponseA!.id)}
+                              className={`flex items-center gap-2 w-full text-left mb-1 px-2 py-2 border-l-3 ${estMoi ? 'bg-blue-700/40 border-blue-200' : 'bg-gray-200 border-gray-400'}`}
+                            >
+                              {message.reponseA.imageId && (
+                                imagesCache[message.reponseA.imageId] ? (
+                                  <img src={imagesCache[message.reponseA.imageId]} alt='' className='h-10 w-10 rounded object-cover shrink-0' />
+                                ) : (
+                                  <div className='h-10 w-10 rounded bg-black/10 shrink-0 flex items-center justify-center'>
+                                    <Loader2 className='h-4 w-4 animate-spin opacity-70' />
+                                  </div>
+                                )
+                              )}
+                              <div className='min-w-0'>
+                                <p className={`text-xs font-medium ${estMoi ? 'text-blue-100' : 'text-gray-600'}`}>{nomExpediteur(message.reponseA.expediteurId)}</p>
+                                <p className={`text-xs truncate ${estMoi ? 'text-blue-50' : 'text-gray-500'}`}>{message.reponseA.texte}</p>
+                              </div>
+                            </button>
+                          )}
+                          {estImage ? (
+                            <div className={message.imageIds!.length > 1 ? 'grid grid-cols-2 gap-0.5' : ''}>
+                              {message.imageIds!.map((id) => (
+                                <div key={id} className='relative group/image'>
+                                  {imagesCache[id] ? (
+                                    <button
+                                      type='button'
+                                      onClick={() => ouvrirVisionneuse(id)}
+                                      className={`block w-full ${message.imageIds!.length > 1 ? 'aspect-square' : 'h-auto'}`}
+                                    >
+                                      <img
+                                        src={imagesCache[id]}
+                                        alt=''
+                                        className={`w-full block ${message.imageIds!.length > 1 ? 'h-full object-cover' : 'h-auto'}`}
+                                      />
+                                    </button>
+                                  ) : (
+                                    <div className='flex items-center justify-center h-40'>
+                                      <Loader2 className='h-6 w-6 animate-spin opacity-70' />
+                                    </div>
+                                  )}
+                                  {imagesCache[id] && (
+                                    <button
+                                      type='button'
+                                      onClick={() => telechargerImage(id)}
+                                      className='absolute top-1.5 right-1.5 p-1.5 rounded-full bg-black/50 text-white opacity-0 group-hover/image:opacity-100 transition-opacity'
+                                      title='Télécharger'
+                                    >
+                                      <Download strokeWidth={2} className='h-3.5 w-3.5' />
+                                    </button>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <p className={`px-4 ${message.reponseA ? 'py-1' : 'py-2'}`}>{message.texte} - <span className={`text-xs mt-1 ${estMoi ? 'text-blue-100' : 'text-gray-400'}`}>
+                              {new Date(message.envoyeAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+                            </span>
+                              {estMoi && idConversationSelectionnee && (
+                                estLuParTous(idConversationSelectionnee, message.envoyeAt)
+                                  ? <CheckCheck className='inline-block h-3.5 w-3.5 ml-1 text-blue-100' />
+                                  : <Check className='inline-block h-3.5 w-3.5 ml-1 text-blue-100' />
+                              )}
+                            </p>
+                          )}
+                          {estImage && (
+                            <p className={`px-2 py-1 text-xs flex justify-end items-center gap-1 ${estMoi ? 'text-blue-100' : 'text-gray-400'}`}>
+                              {new Date(message.envoyeAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+                              {estMoi && idConversationSelectionnee && (
+                                estLuParTous(idConversationSelectionnee, message.envoyeAt)
+                                  ? <CheckCheck className='inline-block h-3.5 w-3.5 text-blue-100' />
+                                  : <Check className='inline-block h-3.5 w-3.5 text-blue-100' />
+                              )}
+                            </p>
+                          )}
+                        </>
+                      )}
                     </div>
+                    {!estMoi && !message.supprime && (
+                      <button
+                        type='button'
+                        onClick={() => setMessageEnReponse(message)}
+                        className='opacity-0 group-hover:opacity-100 p-1 text-gray-400 hover:text-gray-600'
+                        title='Répondre'
+                      >
+                        <Reply strokeWidth={2} className='h-4 w-4' />
+                      </button>
+                    )}
                   </div>
                 )
               })}
@@ -393,27 +668,123 @@ function Messages() {
                 Seuls le fondateur et les responsables peuvent publier dans Annonces.
               </div>
             ) : (
-              <form onSubmit={envoyerMessage} className='flex items-center gap-3 px-6 py-4 border-t border-gray-200'>
-                <input
-                  type='text'
-                  value={texte}
-                  onChange={gererSaisie}
-                  placeholder='Écrire un message...'
-                  className='flex-1 rounded-full border border-gray-300 px-4 py-2 focus:outline-none focus:border-blue-500'
-                />
-                <button
-                  type='submit'
-                  disabled={!texte.trim()}
-                  className='flex items-center justify-center h-10 w-10 rounded-full bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50'
-                >
-                  <Send strokeWidth={2} className='h-5 w-5' />
-                </button>
-              </form>
+              <div className='border-t border-gray-200'>
+                {messageEnReponse && (
+                  <div className='flex items-center justify-between gap-3 px-6 pt-3'>
+                    <div className='flex-1 min-w-0 flex items-center gap-2 rounded-md bg-gray-100 border-l-2 border-blue-500 px-3 py-1.5'>
+                      {messageEnReponse.imageIds?.[0] && (
+                        imagesCache[messageEnReponse.imageIds[0]] ? (
+                          <img src={imagesCache[messageEnReponse.imageIds[0]]} alt='' className='h-10 w-10 rounded object-cover shrink-0' />
+                        ) : (
+                          <div className='h-10 w-10 rounded bg-black/10 shrink-0 flex items-center justify-center'>
+                            <Loader2 className='h-4 w-4 animate-spin opacity-70' />
+                          </div>
+                        )
+                      )}
+                      <div className='min-w-0'>
+                        <p className='text-xs font-medium text-gray-600'>{nomExpediteur(messageEnReponse.expediteurId)}</p>
+                        <p className='text-xs text-gray-500 truncate'>{messageEnReponse.texte}</p>
+                      </div>
+                    </div>
+                    <button type='button' onClick={() => setMessageEnReponse(null)} className='shrink-0 p-1 text-gray-400 hover:text-gray-600'>
+                      <X strokeWidth={2} className='h-4 w-4' />
+                    </button>
+                  </div>
+                )}
+                <form onSubmit={envoyerMessage} className='flex items-center gap-3 px-6 py-4'>
+                  <input
+                    type='text'
+                    value={texte}
+                    onChange={gererSaisie}
+                    placeholder='Écrire un message...'
+                    className='flex-1 rounded-full border border-gray-300 px-4 py-2 focus:outline-none focus:border-blue-500 focus:outline-2 focus:outline-blue-200 '
+                  />
+                  <input
+                    ref={inputImageRef}
+                    type='file'
+                    accept='image/*'
+                    multiple
+                    onChange={envoyerImages}
+                    className='hidden'
+                  />
+                  <button
+                    type='button'
+                    disabled={envoiImageEnCours}
+                    onClick={() => inputImageRef.current?.click()}
+                    className='flex items-center justify-center h-10 w-10 rounded-full text-blue-700 disabled:opacity-50 transition-colors ease-in-out duration-200'
+                  >
+                    {envoiImageEnCours ? <Loader2 strokeWidth={2} className='h-6 w-6 animate-spin' /> : <ImagePlus strokeWidth={2} className='h-7 w-7' />}
+                  </button>
+                  <button
+                    type='submit'
+                    disabled={!texte.trim()}
+                    className='flex items-center justify-center h-10 w-10 rounded-full text-blue-700 disabled:opacity-50 transition-colors ease-in-out duration-200'
+                  >
+                    <SendHorizonal strokeWidth={2} className='h-7 w-7' />
+                  </button>
+                </form>
+              </div>
             )}
           </>
         )}
       </div>
     </div>
+
+    {imageVisionneuse && (
+      <div
+        className='fixed inset-0 z-50 bg-black/90 flex items-center justify-center'
+        onClick={() => setIndexVisionneuse(null)}
+      >
+        <button
+          type='button'
+          onClick={() => setIndexVisionneuse(null)}
+          className='absolute top-4 right-4 p-2 rounded-full bg-white/10 text-white hover:bg-white/20'
+          title='Fermer'
+        >
+          <X strokeWidth={2} className='h-6 w-6' />
+        </button>
+        <button
+          type='button'
+          onClick={(e) => { e.stopPropagation(); telechargerImage(imageVisionneuse.id) }}
+          className='absolute top-4 right-16 p-2 rounded-full bg-white/10 text-white hover:bg-white/20'
+          title='Télécharger'
+        >
+          <Download strokeWidth={2} className='h-6 w-6' />
+        </button>
+        {indexVisionneuse !== null && indexVisionneuse > 0 && (
+          <button
+            type='button'
+            onClick={(e) => { e.stopPropagation(); setIndexVisionneuse(indexVisionneuse - 1) }}
+            className='absolute left-4 top-1/2 -translate-y-1/2 p-2 rounded-full bg-white/10 text-white hover:bg-white/20'
+            title='Précédent'
+          >
+            <ChevronLeft strokeWidth={2} className='h-7 w-7' />
+          </button>
+        )}
+        {indexVisionneuse !== null && indexVisionneuse < toutesLesImages.length - 1 && (
+          <button
+            type='button'
+            onClick={(e) => { e.stopPropagation(); setIndexVisionneuse(indexVisionneuse + 1) }}
+            className='absolute right-4 top-1/2 -translate-y-1/2 p-2 rounded-full bg-white/10 text-white hover:bg-white/20'
+            title='Suivant'
+          >
+            <ChevronRight strokeWidth={2} className='h-7 w-7' />
+          </button>
+        )}
+        <div onClick={(e) => e.stopPropagation()} className='max-h-[90vh] max-w-[90vw] flex items-center justify-center'>
+          {imagesCache[imageVisionneuse.id] ? (
+            <img
+              src={imagesCache[imageVisionneuse.id]}
+              alt=''
+              className='max-h-[90vh] max-w-[90vw] object-contain'
+            />
+          ) : (
+            <Loader2 className='h-10 w-10 text-white animate-spin' />
+          )}
+        </div>
+      </div>
+    )}
+    </>
   )
 }
 

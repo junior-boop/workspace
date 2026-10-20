@@ -1,7 +1,9 @@
 import { useEffect, useState, type SubmitEvent } from 'react'
 import { Plus, ArrowDownCircle, ArrowUpCircle, Loader2 } from 'lucide-react'
 import { collection, doc, onSnapshot, orderBy, query, serverTimestamp, setDoc, Timestamp } from 'firebase/firestore'
-import { db } from '../firebase'
+import { ref, set } from 'firebase/database'
+import { db, rtdb } from '../firebase'
+import { useAuth } from '../contexts/AuthContext'
 import SoldeCaisse from '../composants/SoldeCaisse'
 import ModaleBas from '../composants/ModaleBas'
 import SelectMultiple from '../composants/SelectMultiple'
@@ -29,6 +31,7 @@ type Mouvement = {
 type MouvementFirestore = Mouvement & { id: string }
 
 function MouvementDeCaisse() {
+  const { utilisateur } = useAuth()
   const [modaleOuverte, setModaleOuverte] = useState(false)
   const [type, setType] = useState<'entree' | 'sortie'>('entree')
   const [montant, setMontant] = useState('')
@@ -58,6 +61,11 @@ function MouvementDeCaisse() {
     })
     return unsubscribe
   }, [])
+
+  useEffect(() => {
+    if (!utilisateur) return
+    set(ref(rtdb, `vues/${utilisateur.id}/mouvements`), Date.now())
+  }, [utilisateur, mouvements.length])
 
   const choisirType = (nouveauType: 'entree' | 'sortie') => {
     setType(nouveauType)

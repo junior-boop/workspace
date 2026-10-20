@@ -13,9 +13,11 @@ import Messages from './page/Messages'
 import Login from './page/Login'
 import Layout from './composants/Layout'
 import { useAuth } from './contexts/AuthContext'
+import { NotificationsProvider, useNotifications } from './contexts/NotificationsContext'
 
 function Menu() {
   const { utilisateur } = useAuth()
+  const { messagesNonLus, mouvementsNonLus, projetsNonLus } = useNotifications()
 
   return (
     <div className='flex w-112.5 h-dvh flex-row justify-end '>
@@ -31,10 +33,10 @@ function Menu() {
               <span className='text-sm text-gray-500 font-bold'>MENU</span>
             </div>
             <div className='space-y-1'>
-              <NavButton to="/messages" icon={MessageSquare} label="Messages" />
-              <NavButton to="/" icon={Wallet} label="Mouvements de caisse" />
+              <NavButton to="/messages" icon={MessageSquare} label="Messages" badge={messagesNonLus} />
+              <NavButton to="/" icon={Wallet} label="Mouvements de caisse" badge={mouvementsNonLus} badgePoint />
               <NavButton to="/historique" icon={History} label="L'historique" />
-              <NavButton to="/projets" icon={FolderKanban} label="Les projets" />
+              <NavButton to="/projets" icon={FolderKanban} label="Les projets" badge={projetsNonLus} />
               <NavButton to="/utilisateurs" icon={Users} label="Les utilisateurs" />
               <NavButton to="/parametres" icon={Settings} label="Les paramètres" />
             </div>
@@ -50,7 +52,7 @@ function Menu() {
 }
 
 
-function NavButton({ to, icon: Icon, photo, label }: { to: string, icon: React.ComponentType<React.SVGProps<SVGSVGElement>>, photo?: string | null, label: string }) {
+function NavButton({ to, icon: Icon, photo, label, badge, badgePoint }: { to: string, icon: React.ComponentType<React.SVGProps<SVGSVGElement>>, photo?: string | null, label: string, badge?: number, badgePoint?: boolean }) {
   return (
     <NavLink
       to={to}
@@ -66,7 +68,16 @@ function NavButton({ to, icon: Icon, photo, label }: { to: string, icon: React.C
           ) : (
             <Icon strokeWidth={2} className={`group-hover:text-green-900 ${isActive ? 'text-green-900' : 'text-[#444]'}`} />
           )}
-          <span className='group-hover:text-green-900'>{label}</span>
+          <span className='group-hover:text-green-900 flex-1'>{label}</span>
+          {!!badge && (
+            badgePoint ? (
+              <span className='h-2.5 w-2.5 rounded-full bg-red-600' />
+            ) : (
+              <span className='flex items-center justify-center min-w-5 h-5 px-1.5 rounded-full bg-red-600 text-white text-xs font-bold'>
+                {badge > 99 ? '99+' : badge}
+              </span>
+            )
+          )}
         </>
       )}
     </NavLink>
@@ -90,23 +101,25 @@ function App() {
   }
 
   return (
-    <div className='flex w-dvw h-dvh overflow-hidden border'>
-      <Menu />
-      <div className='flex-1 w-full h-full overflow-y-auto overflow-x-hidden'>
-        <Layout>
-          <Routes>
-            <Route path="/" element={<MouvementDeCaisse />} />
-            <Route path="/historique" element={<Historique />} />
-            <Route path="/projets" element={<Projets />} />
-            <Route path="/utilisateurs" element={<Utilisateurs />} />
-            <Route path="/parametres" element={<Parametres />} />
-            <Route path="/messages" element={<Messages />} />
-            <Route path="/profil" element={<Profil />} />
-            <Route path="/conditions-utilisation" element={<ConditionsUtilisation />} />
-          </Routes>
-        </Layout>
+    <NotificationsProvider>
+      <div className='flex w-dvw h-dvh overflow-hidden border'>
+        <Menu />
+        <div className='flex-1 w-full h-full overflow-y-auto overflow-x-hidden'>
+          <Layout>
+            <Routes>
+              <Route path="/" element={<MouvementDeCaisse />} />
+              <Route path="/historique" element={<Historique />} />
+              <Route path="/projets" element={<Projets />} />
+              <Route path="/utilisateurs" element={<Utilisateurs />} />
+              <Route path="/parametres" element={<Parametres />} />
+              <Route path="/messages" element={<Messages />} />
+              <Route path="/profil" element={<Profil />} />
+              <Route path="/conditions-utilisation" element={<ConditionsUtilisation />} />
+            </Routes>
+          </Layout>
+        </div>
       </div>
-    </div>
+    </NotificationsProvider>
   )
 }
 

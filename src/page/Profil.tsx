@@ -4,6 +4,7 @@ import { doc, serverTimestamp, setDoc } from 'firebase/firestore'
 import { db } from '../firebase'
 import { useAuth } from '../contexts/AuthContext'
 import { hasherMotDePasse } from '../utils/motDePasse'
+import { blobVersDataUrl, compresserImageEnJpeg } from '../utils/image'
 
 const LABELS_ROLE: Record<string, string> = {
   fondateur: 'Fondateur',
@@ -30,12 +31,11 @@ function Profil() {
 
   if (!utilisateur) return null
 
-  const choisirPhoto = (e: ChangeEvent<HTMLInputElement>) => {
+  const choisirPhoto = async (e: ChangeEvent<HTMLInputElement>) => {
     const fichier = e.target.files?.[0]
     if (!fichier) return
-    const lecteur = new FileReader()
-    lecteur.onload = () => setPhoto(lecteur.result as string)
-    lecteur.readAsDataURL(fichier)
+    const imageCompressee = await compresserImageEnJpeg(fichier)
+    setPhoto(await blobVersDataUrl(imageCompressee))
   }
 
   const enregistrerProfil = async (e: SubmitEvent) => {
