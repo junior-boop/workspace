@@ -46,7 +46,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setChargement(true)
     const unsubscribe = onSnapshot(doc(db, 'utilisateurs', id), (snapshot) => {
       if (snapshot.exists()) {
-        setUtilisateur({ id: snapshot.id, ...snapshot.data() } as UtilisateurConnecte)
+        const donnees = snapshot.data()
+        const suspensionActive = donnees.statut === 'suspendu' && donnees.suspensionJusquA && donnees.suspensionJusquA.toMillis() > Date.now()
+        if (donnees.statut === 'banni' || suspensionActive) {
+          localStorage.removeItem(CLE_SESSION)
+          setId(null)
+          setUtilisateur(null)
+          setChargement(false)
+          return
+        }
+        setUtilisateur({ id: snapshot.id, ...donnees } as UtilisateurConnecte)
       } else {
         setUtilisateur(null)
         localStorage.removeItem(CLE_SESSION)

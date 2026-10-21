@@ -85,12 +85,16 @@ function MouvementDeCaisse() {
     setMembre('')
   }
 
+  const peutModifier = utilisateur?.role !== 'collaborateur'
+
   const ouvrirAjout = () => {
+    if (!peutModifier) return
     reinitialiserFormulaire()
     setModaleOuverte(true)
   }
 
   const ouvrirEdition = (mouvement: MouvementFirestore) => {
+    if (!peutModifier) return
     setIdEnEdition(mouvement.id)
     setProjetIdEnEdition(mouvement.projetId ?? null)
     setType(mouvement.type)
@@ -133,6 +137,7 @@ function MouvementDeCaisse() {
 
   const enregistrerMouvement = async (e: SubmitEvent) => {
     e.preventDefault()
+    if (!peutModifier) return
     setEnregistrementEnCours(true)
     try {
       if (idEnEdition) {
@@ -161,7 +166,7 @@ function MouvementDeCaisse() {
   }
 
   const supprimerMouvement = async () => {
-    if (!idEnEdition) return
+    if (!peutModifier || !idEnEdition) return
     if (!window.confirm('Voulez-vous vraiment supprimer ce mouvement de caisse ?')) return
     setSuppressionEnCours(true)
     try {
@@ -183,13 +188,15 @@ function MouvementDeCaisse() {
     <div className='p-4 md:p-8'>
       <div className='sticky top-0 -mx-4 md:-mx-8 -mt-4 md:-mt-8 z-10 bg-white px-4 md:px-8 pt-4 md:pt-8 pb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between' is-header>
         <h1 className='text-2xl font-bold text-gray-800'>Mouvements de caisse</h1>
-        <button
-          onClick={ouvrirAjout}
-          className='flex items-center gap-2 rounded-full bg-blue-600 text-white font-medium px-4 py-2 hover:bg-blue-700 w-max'
-        >
-          <Plus strokeWidth={2} className='h-5 w-5' />
-          Ajouter un mouvement de caisse
-        </button>
+        {peutModifier && (
+          <button
+            onClick={ouvrirAjout}
+            className='flex items-center gap-2 rounded-full bg-blue-600 text-white font-medium px-4 py-2 hover:bg-blue-700 w-max'
+          >
+            <Plus strokeWidth={2} className='h-5 w-5' />
+            Ajouter un mouvement de caisse
+          </button>
+        )}
       </div>
       <div className='mt-6'>
         <SoldeCaisse montant={solde} />
@@ -214,8 +221,8 @@ function MouvementDeCaisse() {
               {mouvementsDuJour.map((mouvement) => (
                 <div
                   key={mouvement.id}
-                  onClick={() => ouvrirEdition(mouvement)}
-                  className='flex items-center gap-2 sm:gap-4 rounded-2xl border border-gray-200 p-4 cursor-pointer hover:bg-gray-50'
+                  onClick={peutModifier ? () => ouvrirEdition(mouvement) : undefined}
+                  className={`flex items-center gap-2 sm:gap-4 rounded-2xl border border-gray-200 p-4 ${peutModifier ? 'cursor-pointer hover:bg-gray-50' : ''}`}
                 >
                   {mouvement.type === 'entree' ? (
                     <ArrowUpCircle strokeWidth={2} className='h-10 w-10 text-green-600 shrink-0' />

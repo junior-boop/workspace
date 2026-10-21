@@ -1,14 +1,40 @@
-import { useEffect, useMemo, useRef, useState, type ChangeEvent, type SubmitEvent } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState, type ChangeEvent, type SubmitEvent } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { Check, CheckCheck, ChevronLeft, ChevronRight, CircleUserRound, Download, ImagePlus, Loader2, Megaphone, Reply, SendHorizonal, Star, Trash2, Users, X } from 'lucide-react'
 import { addDoc, collection, deleteDoc, doc, getDoc, onSnapshot, serverTimestamp, updateDoc, arrayUnion, arrayRemove } from 'firebase/firestore'
-import { onValue, push, ref, remove, set, update } from 'firebase/database'
+import { onValue, push, ref, remove, serverTimestamp as horodatageServeur, set, update } from 'firebase/database'
 import { db, rtdb } from '../firebase'
 import { useAuth } from '../contexts/AuthContext'
 import { ID_ANNONCES, ID_GROUPE, idConversationPrivee } from '../utils/conversation'
 import { blobVersDataUrl, compresserImageEnJpeg } from '../utils/image'
 
 const DELAI_FRAPPE_MS = 3000
+
+const NOMS_JOURS = ['dimanche', 'lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi']
+const NOMS_MOIS = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre']
+
+const memeJour = (a: number, b: number) => {
+  const dateA = new Date(a)
+  const dateB = new Date(b)
+  return dateA.getFullYear() === dateB.getFullYear() && dateA.getMonth() === dateB.getMonth() && dateA.getDate() === dateB.getDate()
+}
+
+const libelleJour = (timestamp: number) => {
+  const date = new Date(timestamp)
+  const maintenant = new Date()
+  const debutJour = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
+  const diffJours = Math.round((debutJour(maintenant) - debutJour(date)) / 86400000)
+
+  if (diffJours === 0) return 'Aujourd\'hui'
+  if (diffJours === 1) return 'Hier'
+  if (diffJours === 2) return 'Il y a deux jours'
+  if (diffJours > 2 && diffJours < 7) return `Il y a ${diffJours} jours`
+
+  const jour = `${NOMS_JOURS[date.getDay()]} le ${date.getDate()}`
+  if (date.getFullYear() !== maintenant.getFullYear()) return `${jour} ${NOMS_MOIS[date.getMonth()]} ${date.getFullYear()}`
+  if (date.getMonth() !== maintenant.getMonth()) return `${jour} ${NOMS_MOIS[date.getMonth()]}`
+  return jour
+}
 
 type Contact = {
   id: string
@@ -128,8 +154,9 @@ function Messages() {
       const valeur = snapshot.val() ?? {}
       setMessages(
         Object.entries(valeur)
-          .sort(([a], [b]) => a.localeCompare(b))
           .map(([id, message]) => ({ id, ...(message as Omit<Message, 'id'>) }))
+          // Les clés push de Firebase sont chronologiques (heure serveur), contrairement à envoyeAt qui dépend de l'horloge de l'appareil
+          .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
       )
     })
     return unsubscribe
@@ -161,7 +188,7 @@ function Messages() {
 
   useEffect(() => {
     if (!utilisateur || !idConversationSelectionnee) return
-    set(ref(rtdb, `lectures/${idConversationSelectionnee}/${utilisateur.id}`), Date.now())
+    set(ref(rtdb, `lectures/${idConversationSelectionnee}/${utilisateur.id}`), horodatageServeur())
   }, [utilisateur, idConversationSelectionnee, messages.length])
 
   const toutesLesImages: ImageConversation[] = useMemo(
@@ -282,12 +309,12 @@ function Messages() {
     await push(ref(rtdb, `messages/${idConversationSelectionnee}`), {
       expediteurId: utilisateur.id,
       texte: texteEnvoye,
-      envoyeAt: Date.now(),
+      envoyeAt: horodatageServeur(),
       ...(reponseA ? { reponseA } : {}),
     })
     await update(ref(rtdb, `conversations/${idConversationSelectionnee}`), {
       dernierMessage: texteEnvoye,
-      dernierMessageAt: Date.now(),
+      dernierMessageAt: horodatageServeur(),
     })
   }
 
@@ -316,12 +343,12 @@ function Messages() {
         expediteurId: utilisateur.id,
         texte: '',
         imageIds,
-        envoyeAt: Date.now(),
+        envoyeAt: horodatageServeur(),
         ...(reponseA ? { reponseA } : {}),
       })
       await update(ref(rtdb, `conversations/${idConversationSelectionnee}`), {
         dernierMessage: imageIds.length > 1 ? `📷 ${imageIds.length} photos` : '📷 Photo',
-        dernierMessageAt: Date.now(),
+        dernierMessageAt: horodatageServeur(),
       })
     } finally {
       setEnvoiImageEnCours(false)
@@ -616,19 +643,25 @@ function Messages() {
                 const estMoi = message.expediteurId === utilisateur.id
                 const estAnnonce = selectedId === ID_ANNONCES
                 const expediteur = contacts.find((contact) => contact.id === message.expediteurId)
-                const groupePrecedent = index > 0 && messages[index - 1].expediteurId === message.expediteurId
-                const groupeSuivant = index < messages.length - 1 && messages[index + 1].expediteurId === message.expediteurId
+                const nouveauJour = index === 0 || !memeJour(messages[index - 1].envoyeAt, message.envoyeAt)
+                const groupePrecedent = index > 0 && messages[index - 1].expediteurId === message.expediteurId && !nouveauJour
+                const groupeSuivant = index < messages.length - 1 && messages[index + 1].expediteurId === message.expediteurId && memeJour(message.envoyeAt, messages[index + 1].envoyeAt)
                 const arrondi = `${groupePrecedent ? 'rounded-t-[4px]' : 'rounded-t-xl'} ${groupeSuivant ? 'rounded-b-[4px]' : 'rounded-b-xl'}`
                 const estImage = !!message.imageIds?.length && !message.supprime
                 return (
-                  <div
-                    key={message.id}
-                    ref={(el) => { messagesRef.current[message.id] = el }}
-                    className={`group flex items-center gap-1 ${estAnnonce ? 'justify-center' : estMoi ? 'justify-end' : 'justify-start'} ${index === 0 ? '' : groupePrecedent ? 'mt-1' : 'mt-3'}`}
-                    onTouchStart={() => demarrerAppuiLong(message.id)}
-                    onTouchEnd={annulerAppuiLong}
-                    onTouchMove={annulerAppuiLong}
-                  >
+                  <Fragment key={message.id}>
+                    {nouveauJour && (
+                      <div className={`flex justify-center ${index === 0 ? '' : 'mt-4'} mb-3`}>
+                        <span className='text-xs font-medium text-gray-500 bg-gray-100 rounded-full px-3 py-1'>{libelleJour(message.envoyeAt)}</span>
+                      </div>
+                    )}
+                    <div
+                      ref={(el) => { messagesRef.current[message.id] = el }}
+                      className={`group flex items-center gap-1 ${estAnnonce ? 'justify-center' : estMoi ? 'justify-end' : 'justify-start'} ${nouveauJour ? '' : groupePrecedent ? 'mt-1' : 'mt-3'}`}
+                      onTouchStart={() => demarrerAppuiLong(message.id)}
+                      onTouchEnd={annulerAppuiLong}
+                      onTouchMove={annulerAppuiLong}
+                    >
                     {estMoi && !message.supprime && (
                       <div className={`flex items-center transition-opacity ${messageActifId === message.id ? 'opacity-100' : 'opacity-0'} md:group-hover:opacity-100`}>
                         <button
@@ -650,12 +683,12 @@ function Messages() {
                       </div>
                     )}
                     <div className={`${estImage ? 'w-[75%] md:w-[55%]' : estAnnonce ? 'w-[70%]' : 'max-w-[60%]'} ${arrondi} overflow-hidden ${estMoi ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-800'}`}>
-                      {estAnnonce && (
+                      {estAnnonce && !groupePrecedent && (
                         <p className='text-[11px] font-medium opacity-70 px-4 pt-2'>
                           {estMoi ? `${utilisateur.prenoms.split(' ')[0]} ${utilisateur.nom}` : `${expediteur?.prenoms.split(' ')[0]} ${expediteur?.nom}`}
                         </p>
                       )}
-                      {selectedId === ID_GROUPE && !estMoi && (
+                      {selectedId === ID_GROUPE && !estMoi && !groupePrecedent && (
                         <p className='text-xs font-medium mb-1 opacity-70 px-4 pt-2'>{expediteur?.prenoms.split(' ')[0]} {expediteur?.nom}</p>
                       )}
                       {message.supprime ? (
@@ -751,7 +784,8 @@ function Messages() {
                         <Reply strokeWidth={2} className='h-4 w-4' />
                       </button>
                     )}
-                  </div>
+                    </div>
+                  </Fragment>
                 )
               })}
               <div ref={finDesMessagesRef} />

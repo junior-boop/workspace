@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ChangeEvent, type SubmitEvent } from 'react'
-import { Plus, CircleUserRound, Camera, Eye, EyeOff, Loader2, Pencil, Trash2 } from 'lucide-react'
+import { Plus, CircleUserRound, Camera, Eye, EyeOff, Loader2, Pencil, Trash2, Tag, Ban } from 'lucide-react'
 import { collection, deleteDoc, doc, onSnapshot, serverTimestamp, setDoc, Timestamp } from 'firebase/firestore'
 import { db } from '../firebase'
 import { useAuth } from '../contexts/AuthContext'
@@ -9,11 +9,13 @@ import { blobVersDataUrl, compresserImageEnJpeg } from '../utils/image'
 
 type Role = 'fondateur' | 'responsable' | 'collaborateur'
 
-const LABELS_ROLE: Record<Role, string> = {
-  fondateur: 'Fondateur',
-  responsable: 'Responsable',
-  collaborateur: 'collaborateur',
+const COULEURS_PINCE: Record<Role, string> = {
+  fondateur: 'text-blue-600 fill-blue-600',
+  responsable: 'text-blue-300 fill-blue-300',
+  collaborateur: 'text-orange-500 fill-orange-500',
 }
+
+type Statut = 'actif' | 'banni' | 'suspendu'
 
 type Utilisateur = {
   nom: string
@@ -26,6 +28,8 @@ type Utilisateur = {
   motDePasse: string
   role: Role
   photo: string | null
+  statut?: Statut
+  suspensionJusquA?: Timestamp | null
   createdAt: Timestamp | null
   updatedAt: Timestamp | null
 }
@@ -62,6 +66,9 @@ function Utilisateurs() {
   const [enregistrementEnCours, setEnregistrementEnCours] = useState(false)
   const [idEnEdition, setIdEnEdition] = useState<string | null>(null)
   const [idEnSuppression, setIdEnSuppression] = useState<string | null>(null)
+  const [idEnRestriction, setIdEnRestriction] = useState<string | null>(null)
+  const [dureeSuspension, setDureeSuspension] = useState('1')
+  const [restrictionEnCours, setRestrictionEnCours] = useState(false)
   const inputPhotoRef = useRef<HTMLInputElement>(null)
 
   const choisirPhoto = async (e: ChangeEvent<HTMLInputElement>) => {
@@ -94,6 +101,7 @@ function Utilisateurs() {
   }
 
   const ouvrirEdition = (utilisateur: UtilisateurFirestore) => {
+    if (utilisateurConnecte?.role !== 'fondateur') return
     setIdEnEdition(utilisateur.id)
     setNom(utilisateur.nom)
     setPrenoms(utilisateur.prenoms)
@@ -123,6 +131,60 @@ function Utilisateurs() {
       await deleteDoc(doc(db, 'utilisateurs', utilisateur.id))
     } finally {
       setIdEnSuppression(null)
+    }
+  }
+
+  const peutRestreindre = (utilisateur: UtilisateurFirestore) =>
+    utilisateurConnecte?.role === 'fondateur' && utilisateur.role !== 'fondateur' && utilisateur.id !== utilisateurConnecte.id
+
+  const estBanni = (utilisateur: UtilisateurFirestore) => utilisateur.statut === 'banni'
+
+  const estSuspenduEnCours = (utilisateur: UtilisateurFirestore) =>
+    utilisateur.statut === 'suspendu' && !!utilisateur.suspensionJusquA && utilisateur.suspensionJusquA.toMillis() > Date.now()
+
+  const estRestreint = (utilisateur: UtilisateurFirestore) => estBanni(utilisateur) || estSuspenduEnCours(utilisateur)
+
+  const ouvrirRestriction = (utilisateur: UtilisateurFirestore) => {
+    if (!peutRestreindre(utilisateur)) return
+    setIdEnRestriction(utilisateur.id)
+  }
+
+  const fermerRestriction = () => {
+    setIdEnRestriction(null)
+    setDureeSuspension('1')
+  }
+
+  const bannirUtilisateur = async () => {
+    if (!idEnRestriction) return
+    setRestrictionEnCours(true)
+    try {
+      await setDoc(doc(db, 'utilisateurs', idEnRestriction), { statut: 'banni', suspensionJusquA: null }, { merge: true })
+      fermerRestriction()
+    } finally {
+      setRestrictionEnCours(false)
+    }
+  }
+
+  const suspendreUtilisateur = async () => {
+    if (!idEnRestriction) return
+    setRestrictionEnCours(true)
+    try {
+      const jusquA = Timestamp.fromMillis(Date.now() + Number(dureeSuspension) * 24 * 60 * 60 * 1000)
+      await setDoc(doc(db, 'utilisateurs', idEnRestriction), { statut: 'suspendu', suspensionJusquA: jusquA }, { merge: true })
+      fermerRestriction()
+    } finally {
+      setRestrictionEnCours(false)
+    }
+  }
+
+  const reactiverUtilisateur = async () => {
+    if (!idEnRestriction) return
+    setRestrictionEnCours(true)
+    try {
+      await setDoc(doc(db, 'utilisateurs', idEnRestriction), { statut: 'actif', suspensionJusquA: null }, { merge: true })
+      fermerRestriction()
+    } finally {
+      setRestrictionEnCours(false)
     }
   }
 
@@ -170,6 +232,8 @@ function Utilisateurs() {
     }
   }
 
+  const utilisateurEnRestriction = utilisateurs.find((u) => u.id === idEnRestriction) ?? null
+
   return (
     <div className='p-4 md:p-8'>
       <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
@@ -205,20 +269,48 @@ function Utilisateurs() {
             <div className='flex-1 min-w-0'>
               <p className='font-medium text-gray-800 truncate'>{utilisateur.nom} {utilisateur.prenoms}</p>
               <p className='text-sm text-gray-500 truncate'>{utilisateur.email} · {utilisateur.telephone}</p>
-              <span className={`sm:hidden inline-block mt-1 px-3 py-1 rounded-full text-xs font-medium ${utilisateur.role === 'collaborateur' ? 'bg-gray-100 text-gray-700' : 'bg-blue-50 text-blue-700'}`}>
-                {LABELS_ROLE[utilisateur.role]}
+              <span className='sm:hidden inline-flex items-center mt-1'>
+                <Tag strokeWidth={2} className={`h-3.5 w-3.5 -rotate-90 ${COULEURS_PINCE[utilisateur.role]}`} />
               </span>
+              {estBanni(utilisateur) && (
+                <span className='block sm:hidden mt-1 text-xs font-medium text-red-600'>Banni</span>
+              )}
+              {estSuspenduEnCours(utilisateur) && (
+                <span className='block sm:hidden mt-1 text-xs font-medium text-orange-600'>
+                  Suspendu jusqu'au {utilisateur.suspensionJusquA!.toDate().toLocaleDateString('fr-FR')}
+                </span>
+              )}
             </div>
-            <span className={`hidden sm:inline-block shrink-0 px-3 py-1 rounded-full text-sm font-medium ${utilisateur.role === 'collaborateur' ? 'bg-gray-100 text-gray-700' : 'bg-blue-50 text-blue-700'}`}>
-              {LABELS_ROLE[utilisateur.role]}
+            <span className='hidden sm:inline-flex items-center shrink-0'>
+              <Tag strokeWidth={2} className={`h-4 w-4 -rotate-90 ${COULEURS_PINCE[utilisateur.role]}`} />
             </span>
-            <button
-              type='button'
-              onClick={() => ouvrirEdition(utilisateur)}
-              className='flex items-center justify-center h-9 w-9 rounded-full text-gray-500 hover:bg-gray-100 hover:text-gray-800'
-            >
-              <Pencil strokeWidth={2} className='h-4 w-4' />
-            </button>
+            {estBanni(utilisateur) && (
+              <span className='hidden sm:inline-flex shrink-0 text-sm font-medium text-red-600'>Banni</span>
+            )}
+            {estSuspenduEnCours(utilisateur) && (
+              <span className='hidden sm:inline-flex shrink-0 text-sm font-medium text-orange-600'>
+                Suspendu jusqu'au {utilisateur.suspensionJusquA!.toDate().toLocaleDateString('fr-FR')}
+              </span>
+            )}
+            {peutRestreindre(utilisateur) && (
+              <button
+                type='button'
+                onClick={() => ouvrirRestriction(utilisateur)}
+                title={estRestreint(utilisateur) ? 'Gérer la restriction' : 'Bannir ou suspendre'}
+                className={`flex items-center justify-center h-9 w-9 rounded-full hover:bg-orange-50 ${estRestreint(utilisateur) ? 'text-orange-600' : 'text-gray-500 hover:text-orange-600'}`}
+              >
+                <Ban strokeWidth={2} className='h-4 w-4' />
+              </button>
+            )}
+            {utilisateurConnecte?.role === 'fondateur' && (
+              <button
+                type='button'
+                onClick={() => ouvrirEdition(utilisateur)}
+                className='flex items-center justify-center h-9 w-9 rounded-full text-gray-500 hover:bg-gray-100 hover:text-gray-800'
+              >
+                <Pencil strokeWidth={2} className='h-4 w-4' />
+              </button>
+            )}
             {peutSupprimer(utilisateur) && (
               <button
                 type='button'
@@ -426,6 +518,67 @@ function Utilisateurs() {
             </button>
           </div>
         </form>
+      </ModaleBas>
+
+      <ModaleBas
+        open={idEnRestriction !== null}
+        onClose={fermerRestriction}
+        title={utilisateurEnRestriction ? `${utilisateurEnRestriction.nom} ${utilisateurEnRestriction.prenoms}` : ''}
+      >
+        <div className='flex flex-col gap-5'>
+          {utilisateurEnRestriction && estRestreint(utilisateurEnRestriction) ? (
+            <>
+              <p className='text-gray-700'>
+                {estBanni(utilisateurEnRestriction)
+                  ? 'Ce compte est banni définitivement.'
+                  : `Ce compte est suspendu jusqu'au ${utilisateurEnRestriction.suspensionJusquA!.toDate().toLocaleDateString('fr-FR')}.`}
+              </p>
+              <button
+                type='button'
+                onClick={reactiverUtilisateur}
+                disabled={restrictionEnCours}
+                className='flex items-center justify-center gap-2 rounded-full bg-blue-600 text-white font-medium px-4 py-3 hover:bg-blue-700 disabled:opacity-70 disabled:cursor-not-allowed'
+              >
+                {restrictionEnCours && <Loader2 className='h-5 w-5 animate-spin' />}
+                Réactiver le compte
+              </button>
+            </>
+          ) : (
+            <>
+              <div>
+                <label className='block text-sm font-medium text-gray-700 mb-2'>Durée de la suspension</label>
+                <select
+                  value={dureeSuspension}
+                  onChange={(e) => setDureeSuspension(e.target.value)}
+                  className='w-full rounded-xl border border-gray-300 px-4 py-2 focus:outline-none focus:border-blue-500'
+                >
+                  <option value='1'>1 jour</option>
+                  <option value='3'>3 jours</option>
+                  <option value='7'>7 jours</option>
+                  <option value='30'>30 jours</option>
+                </select>
+              </div>
+              <button
+                type='button'
+                onClick={suspendreUtilisateur}
+                disabled={restrictionEnCours}
+                className='flex items-center justify-center gap-2 rounded-full bg-orange-500 text-white font-medium px-4 py-3 hover:bg-orange-600 disabled:opacity-70 disabled:cursor-not-allowed'
+              >
+                {restrictionEnCours && <Loader2 className='h-5 w-5 animate-spin' />}
+                Suspendre
+              </button>
+              <button
+                type='button'
+                onClick={bannirUtilisateur}
+                disabled={restrictionEnCours}
+                className='flex items-center justify-center gap-2 rounded-full bg-red-600 text-white font-medium px-4 py-3 hover:bg-red-700 disabled:opacity-70 disabled:cursor-not-allowed'
+              >
+                {restrictionEnCours && <Loader2 className='h-5 w-5 animate-spin' />}
+                Bannir définitivement
+              </button>
+            </>
+          )}
+        </div>
       </ModaleBas>
     </div>
   )

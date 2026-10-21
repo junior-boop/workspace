@@ -26,6 +26,15 @@ function Login() {
         setErreur('Email ou mot de passe incorrect.')
         return
       }
+      const donnees = utilisateurDoc.data()
+      if (donnees.statut === 'banni') {
+        setErreur('Ce compte a été banni.')
+        return
+      }
+      if (donnees.statut === 'suspendu' && donnees.suspensionJusquA && donnees.suspensionJusquA.toMillis() > Date.now()) {
+        setErreur(`Ce compte est suspendu jusqu'au ${donnees.suspensionJusquA.toDate().toLocaleDateString('fr-FR')}.`)
+        return
+      }
       connecter(utilisateurDoc.id)
     } finally {
       setConnexionEnCours(false)
