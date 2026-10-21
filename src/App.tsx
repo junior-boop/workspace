@@ -32,7 +32,7 @@ function Menu({ open, onClose, origine }: { open: boolean, onClose: () => void, 
         />
       )}
       <div
-        className='menu-mobile-clip fixed md:static inset-y-0 left-0 z-40 flex w-dvw md:w-112.5 h-dvh flex-row justify-start'
+        className='menu-mobile-clip fixed md:static inset-y-0 left-0 z-40 flex w-dvw md:w-112.5 h-dvh flex-row justify-start md:justify-end'
         style={{ '--rayon': open ? '150%' : '0%', '--origine-x': `${origine.x}px`, '--origine-y': `${origine.y}px` } as React.CSSProperties}
       >
         <div className='w-dvw lg:w-[80%] h-full flex flex-col overflow-y-auto md:overflow-visible border-r border-gray-200 px-4 bg-white'>

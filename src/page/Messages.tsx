@@ -419,6 +419,9 @@ function Messages() {
     setZoomActif(false)
   }, [indexVisionneuse])
 
+  const nonLuAnnonces = nonLuPourMoi(ID_ANNONCES)
+  const nonLuGroupe = nonLuPourMoi(ID_GROUPE)
+
   return (
     <>
     <div className='h-full flex'>
@@ -461,11 +464,14 @@ function Messages() {
             onClick={() => setSelectedId(ID_ANNONCES)}
             className={`w-full flex items-center gap-3 px-4 py-3 border-b border-gray-100 text-left ${selectedId === ID_ANNONCES ? 'bg-blue-50' : 'hover:bg-gray-50'}`}
           >
-            <div className='h-10 w-10 rounded-full bg-blue-600 flex items-center justify-center shrink-0'>
+            <div className='relative h-10 w-10 rounded-full bg-blue-600 flex items-center justify-center shrink-0'>
               <Megaphone strokeWidth={2} className='h-5 w-5 text-white' />
+              {nonLuAnnonces && (
+                <span className='absolute -top-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-red-500 border-2 border-white' />
+              )}
             </div>
             <div className='flex-1 min-w-0'>
-              <p className='font-medium text-gray-800'>
+              <p className={`font-medium ${nonLuAnnonces ? 'text-red-600' : 'text-gray-800'}`}>
                 Annonces
                 {resumes[ID_ANNONCES]?.dernierMessageAt && (
                   <span className='text-xs text-gray-400'> - {new Date(resumes[ID_ANNONCES]!.dernierMessageAt!).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</span>
@@ -480,11 +486,14 @@ function Messages() {
             onClick={() => setSelectedId(ID_GROUPE)}
             className={`w-full flex items-center gap-3 px-4 py-3 border-b border-gray-100 text-left ${selectedId === ID_GROUPE ? 'bg-blue-50' : 'hover:bg-gray-50'}`}
           >
-            <div className='h-10 w-10 rounded-full bg-green-600 flex items-center justify-center shrink-0'>
+            <div className='relative h-10 w-10 rounded-full bg-green-600 flex items-center justify-center shrink-0'>
               <Users strokeWidth={2} className='h-5 w-5 text-white' />
+              {nonLuGroupe && (
+                <span className='absolute -top-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-red-500 border-2 border-white' />
+              )}
             </div>
             <div className='flex-1 min-w-0'>
-              <p className='font-medium text-gray-800'>
+              <p className={`font-medium ${nonLuGroupe ? 'text-red-600' : 'text-gray-800'}`}>
                 Groupe
                 {resumes[ID_GROUPE]?.dernierMessageAt && (
                   <span className='text-xs text-gray-400'> - {new Date(resumes[ID_GROUPE]!.dernierMessageAt!).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}</span>
@@ -640,14 +649,14 @@ function Messages() {
                         </button>
                       </div>
                     )}
-                    <div className={`${estImage ? 'w-[75%] md:w-[45%]' : estAnnonce ? 'w-[70%]' : 'max-w-[60%]'} ${arrondi} overflow-hidden ${estMoi ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-800'}`}>
+                    <div className={`${estImage ? 'w-[75%] md:w-[55%]' : estAnnonce ? 'w-[70%]' : 'max-w-[60%]'} ${arrondi} overflow-hidden ${estMoi ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-800'}`}>
                       {estAnnonce && (
                         <p className='text-[11px] font-medium opacity-70 px-4 pt-2'>
                           {estMoi ? `${utilisateur.prenoms.split(' ')[0]} ${utilisateur.nom}` : `${expediteur?.prenoms.split(' ')[0]} ${expediteur?.nom}`}
                         </p>
                       )}
                       {selectedId === ID_GROUPE && !estMoi && (
-                        <p className='text-xs font-medium mb-1 opacity-70 px-4'>{expediteur?.prenoms.split(' ')[0]} {expediteur?.nom}</p>
+                        <p className='text-xs font-medium mb-1 opacity-70 px-4 pt-2'>{expediteur?.prenoms.split(' ')[0]} {expediteur?.nom}</p>
                       )}
                       {message.supprime ? (
                         <p className={`px-4 py-2 italic text-sm ${estMoi ? 'text-blue-100' : 'text-gray-400'}`}>Message supprimé</p>
