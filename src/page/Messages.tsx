@@ -682,7 +682,7 @@ function Messages() {
                         </button>
                       </div>
                     )}
-                    <div className={`${estImage ? 'w-[75%] md:w-[55%]' : estAnnonce ? 'w-[70%]' : 'max-w-[60%]'} ${arrondi} overflow-hidden ${estMoi ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-800'}`}>
+                    <div className={`${estImage ? 'w-[75%] md:w-[55%]' : estAnnonce ? 'w-[70%]' : 'max-w-[75%]'} ${arrondi} overflow-hidden ${estMoi ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-800'}`}>
                       {estAnnonce && !groupePrecedent && (
                         <p className='text-[11px] font-medium opacity-70 px-4 pt-2'>
                           {estMoi ? `${utilisateur.prenoms.split(' ')[0]} ${utilisateur.nom}` : `${expediteur?.prenoms.split(' ')[0]} ${expediteur?.nom}`}
