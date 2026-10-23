@@ -275,7 +275,7 @@ function Messages() {
     })
   }
 
-  const gererSaisie = (e: ChangeEvent<HTMLInputElement>) => {
+  const gererSaisie = (e: ChangeEvent<HTMLTextAreaElement>) => {
     const valeur = e.target.value
     setTexte(valeur)
     if (!idConversationSelectionnee) return
@@ -448,6 +448,12 @@ function Messages() {
 
   const nonLuAnnonces = nonLuPourMoi(ID_ANNONCES)
   const nonLuGroupe = nonLuPourMoi(ID_GROUPE)
+
+  const autoheightTextarea = (textarea: HTMLTextAreaElement) => {
+    textarea.style.height = '48px'
+    textarea.style.height = `${textarea.scrollHeight}px`
+  }
+
 
   return (
     <>
@@ -657,13 +663,13 @@ function Messages() {
                     )}
                     <div
                       ref={(el) => { messagesRef.current[message.id] = el }}
-                      className={`group flex items-center gap-1 ${estAnnonce ? 'justify-center' : estMoi ? 'justify-end' : 'justify-start'} ${nouveauJour ? '' : groupePrecedent ? 'mt-1' : 'mt-3'}`}
+                      className={`group relative flex items-center gap-1 ${estAnnonce ? 'justify-center' : estMoi ? 'justify-end' : 'justify-start'} ${nouveauJour ? '' : groupePrecedent ? 'mt-1' : 'mt-3'}`}
                       onTouchStart={() => demarrerAppuiLong(message.id)}
                       onTouchEnd={annulerAppuiLong}
                       onTouchMove={annulerAppuiLong}
                     >
                     {estMoi && !message.supprime && (
-                      <div className={`flex items-center transition-opacity ${messageActifId === message.id ? 'opacity-100' : 'opacity-0'} md:group-hover:opacity-100`}>
+                      <div className={`flex absolute left-8 items-center transition-opacity ${messageActifId === message.id ? 'opacity-100' : 'opacity-0'} md:group-hover:opacity-100`}>
                         <button
                           type='button'
                           onClick={() => supprimerMessage(message)}
@@ -712,7 +718,7 @@ function Messages() {
                               )}
                               <div className='min-w-0'>
                                 <p className={`text-xs font-medium ${estMoi ? 'text-blue-100' : 'text-gray-600'}`}>{nomExpediteur(message.reponseA.expediteurId)}</p>
-                                <p className={`text-xs truncate ${estMoi ? 'text-blue-50' : 'text-gray-500'}`}>{message.reponseA.texte}</p>
+                                <p className={`whitespace-pre-wrap wrap-break-word text-xs truncate ${estMoi ? 'text-blue-50' : 'text-gray-500'}`}>{message.reponseA.texte}</p>
                               </div>
                             </button>
                           )}
@@ -751,7 +757,7 @@ function Messages() {
                               ))}
                             </div>
                           ) : (
-                            <p className={`px-4 ${message.reponseA ? 'py-1' : 'py-2'}`}>{message.texte} - <span className={`text-xs mt-1 ${estMoi ? 'text-blue-100' : 'text-gray-400'}`}>
+                            <p className={`px-4 whitespace-pre-wrap wrap-break-word ${message.reponseA ? 'py-1' : 'py-2'}`}>{message.texte} - <span className={`text-xs mt-1 ${estMoi ? 'text-blue-100' : 'text-gray-400'}`}>
                               {new Date(message.envoyeAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
                             </span>
                               {estMoi && idConversationSelectionnee && (
@@ -819,13 +825,15 @@ function Messages() {
                     </button>
                   </div>
                 )}
-                <form onSubmit={envoyerMessage} className='flex items-center gap-3 px-4 md:px-6 py-4'>
-                  <input
-                    type='text'
+                <form onSubmit={envoyerMessage} className='flex items-center gap-3 px-4 md:px-6 py-2'>
+                  <textarea
+                    cols={1}
                     value={texte}
                     onChange={gererSaisie}
+                    onInput={(e) => autoheightTextarea(e.target as HTMLTextAreaElement)}
                     placeholder='Écrire un message...'
-                    className='flex-1 rounded-full border border-gray-300 px-4 py-2 focus:outline-none focus:border-blue-500 focus:outline-2 focus:outline-blue-200 '
+                    spellCheck={false}
+                    className='flex-1 rounded-xl border border-gray-300 px-4 py-2 focus:border-blue-500 focus:outline-2 focus:outline-blue-200 min-h-9 max-h-40 resize-none overflow-y-auto text-sm'
                   />
                   <input
                     ref={inputImageRef}
